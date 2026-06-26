@@ -68,15 +68,13 @@ function AdultCard({
   const thumb = item.thumbnail || "";
   const meta  = [item.author, item.views && `${item.views} views`].filter(Boolean).join(" · ");
 
-  const [dlState, setDlState]   = useState<"idle" | "loading" | "error">("idle");
-  const [dlMsg, setDlMsg]       = useState<string | null>(null);
-  const [dlResult, setDlResult] = useState<AdultDownloadResult | null>(null);
+  // Separate state for Watch (plays immediately) vs Download (shows quality picker to save)
+  const [watchState, setWatchState] = useState<"idle" | "loading" | "error">("idle");
+  const [watchMsg, setWatchMsg]     = useState<string | null>(null);
+  const [dlState, setDlState]       = useState<"idle" | "loading" | "error">("idle");
+  const [dlMsg, setDlMsg]           = useState<string | null>(null);
+  const [dlResult, setDlResult]     = useState<AdultDownloadResult | null>(null);
   const [showPicker, setShowPicker] = useState(false);
-
-  function handlePlay(url: string) {
-    setShowPicker(false);
-    onPlay({ title: item.title || "Untitled", url, thumbnail: item.thumbnail });
-  }
 
   function handleSave(url: string, label: string) {
     setShowPicker(false);
@@ -90,6 +88,38 @@ function AdultCard({
     onSaved(`✓ Saved to Downloads (${label})`);
   }
 
+  // Watch: fetch URLs then immediately play at best quality — no picker, no auto-save
+  async function handleWatch() {
+    if (watchState === "loading") return;
+
+    if (dlResult?.files) {
+      const url = dlResult.files.high || dlResult.files.low!;
+      onPlay({ title: item.title || "Untitled", url, thumbnail: item.thumbnail });
+      return;
+    }
+
+    setWatchState("loading");
+    setWatchMsg(null);
+    try {
+      const res = await downloadAdultVideo(item.url);
+      if (!res.success || !res.files) {
+        setWatchMsg(res.error || "No video available");
+        setWatchState("error");
+        setTimeout(() => { setWatchState("idle"); setWatchMsg(null); }, 3500);
+        return;
+      }
+      setDlResult(res); // cache so Download button can reuse
+      const url = res.files.high || res.files.low!;
+      setWatchState("idle");
+      onPlay({ title: item.title || "Untitled", url, thumbnail: item.thumbnail });
+    } catch (e: unknown) {
+      setWatchMsg((e as Error).message || "Failed");
+      setWatchState("error");
+      setTimeout(() => { setWatchState("idle"); setWatchMsg(null); }, 3500);
+    }
+  }
+
+  // Download: fetch URLs then show quality picker to save to Downloads tab
   async function handleDownload() {
     if (dlState === "loading") return;
 
@@ -109,23 +139,6 @@ function AdultCard({
         return;
       }
       setDlResult(res);
-
-      const keys = (["high", "low"] as const).filter((k) => !!res.files![k]);
-      if (keys.length === 1) {
-        const url = res.files![keys[0]]!;
-        setDlState("idle");
-        onPlay({ title: item.title || "Untitled", url, thumbnail: item.thumbnail });
-        addAdultDownload({
-          title: item.title || "Untitled",
-          thumbnail: item.thumbnail,
-          duration: item.duration,
-          highUrl: res.files!.high,
-          lowUrl:  res.files!.low,
-        });
-        onSaved("✓ Saved to Downloads");
-        return;
-      }
-
       setShowPicker(true);
       setDlState("idle");
     } catch (e: unknown) {
@@ -139,7 +152,7 @@ function AdultCard({
     <div className="rounded-2xl overflow-hidden bg-card border border-border flex flex-col group transition-all hover:border-white/20">
       <div
         className="relative w-full aspect-video bg-black cursor-pointer overflow-hidden"
-        onClick={handleDownload}
+        onClick={handleWatch}
       >
         {thumb ? (
           <img
@@ -175,14 +188,14 @@ function AdultCard({
           <p className="text-[11px] text-muted-foreground line-clamp-1">{meta}</p>
         )}
 
-        {dlMsg && (
-          <p className="text-[11px] font-semibold text-red-400">{dlMsg}</p>
+        {(watchMsg || dlMsg) && (
+          <p className="text-[11px] font-semibold text-red-400">{watchMsg || dlMsg}</p>
         )}
 
         {showPicker && dlResult?.files && (
           <QualityPicker
             files={dlResult.files}
-            onPlay={handlePlay}
+            onPlay={(url) => { setShowPicker(false); onPlay({ title: item.title || "Untitled", url, thumbnail: item.thumbnail }); }}
             onSave={handleSave}
             onClose={() => setShowPicker(false)}
           />
@@ -190,17 +203,17 @@ function AdultCard({
 
         <div className="mt-auto flex gap-2">
           <button
-            onClick={handleDownload}
-            disabled={dlState === "loading"}
+            onClick={handleWatch}
+            disabled={watchState === "loading"}
             className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold text-white transition-opacity active:opacity-80 disabled:opacity-50"
             style={{ backgroundColor: "#c2185b" }}
           >
-            {dlState === "loading" ? (
+            {watchState === "loading" ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
               <Play className="w-3.5 h-3.5" fill="white" />
             )}
-            {dlState === "loading" ? "Loading…" : "Watch"}
+            {watchState === "loading" ? "Loading…" : "Watch"}
           </button>
 
           <button
