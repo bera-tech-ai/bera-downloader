@@ -1,18 +1,19 @@
+// CommonJS — Vercel Node.js runtime default
 const API_KEY = "_0u5aff45,_0l1876s8qc";
 const BASE = "https://api.gifted.co.ke/api";
 
-// Mirror the exact path mappings from the Express router
+// Mirror the Express router path → gifted API endpoint mapping exactly
 const PATH_MAP = {
-  "search":          "/search/yts",
-  "download/mp3":    "/download/ytmp3",
-  "download/mp4":    "/download/ytmp4v2",
-  "ai/chat":         "/ai/overchat",
-  "lyrics":          "/search/lyrics",
-  "adult/search":    "/search/xnxxsearch",
-  "adult/download":  "/download/xnxxdl",
+  "search":         "/search/yts",
+  "download/mp3":   "/download/ytmp3",
+  "download/mp4":   "/download/ytmp4v2",
+  "ai/chat":        "/ai/overchat",
+  "lyrics":         "/search/lyrics",
+  "adult/search":   "/search/xnxxsearch",
+  "adult/download": "/download/xnxxdl",
 };
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   try {
     const { path: pathSegments, ...queryParams } = req.query;
     const pathStr = Array.isArray(pathSegments)
@@ -29,7 +30,7 @@ export default async function handler(req, res) {
       if (typeof v === "string") params.set(k, v);
     }
 
-    // For adult/download, swap the domain so the gifted API can resolve it
+    // Adult download needs the domain swapped for the gifted API
     if (pathStr === "adult/download" && params.get("url")) {
       params.set("url", params.get("url").replace(/xnxx\.com/g, "xnxx.health"));
     }
@@ -40,12 +41,12 @@ export default async function handler(req, res) {
     const contentType = response.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
       const data = await response.json();
-      res.status(response.status).json(data);
+      return res.status(response.status).json(data);
     } else {
       const text = await response.text();
-      res.status(response.status).send(text);
+      return res.status(response.status).send(text);
     }
   } catch (err) {
-    res.status(500).json({ error: "Proxy error", message: err.message });
+    return res.status(500).json({ error: "Proxy error", message: String(err.message) });
   }
-}
+};
