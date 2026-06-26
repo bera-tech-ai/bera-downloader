@@ -5,6 +5,8 @@ import { DownloadsPage } from "@/pages/DownloadsPage";
 import { AIChatPage } from "@/pages/AIChatPage";
 import { AdultPage } from "@/pages/AdultPage";
 import { useDownloads } from "@/hooks/useDownloads";
+import { useFavorites } from "@/hooks/useFavorites";
+import { AudioPlayerProvider, useAudioPlayer } from "@/context/AudioPlayerContext";
 
 const TABS = [
   { id: "home",      label: "Search",    icon: Search },
@@ -17,7 +19,8 @@ type Tab = (typeof TABS)[number]["id"];
 
 function NavBar({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
   const { downloads } = useDownloads();
-  const dlCount = downloads.filter(d => d.status === "completed").length;
+  const { favorites } = useFavorites();
+  const dlCount = downloads.filter(d => d.status === "completed").length + favorites.length;
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-[#0d0d0d]/98 backdrop-blur safe-area-bottom">
@@ -46,10 +49,7 @@ function NavBar({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
                   </span>
                 )}
               </div>
-              <span
-                className={`text-[10px] font-semibold tracking-wide`}
-                style={{ color }}
-              >
+              <span className="text-[10px] font-semibold tracking-wide" style={{ color }}>
                 {label}
               </span>
               {active && (
@@ -66,18 +66,29 @@ function NavBar({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
   );
 }
 
-export default function App() {
+function AppInner() {
   const [tab, setTab] = useState<Tab>("home");
+  const { track } = useAudioPlayer();
+  // Extra bottom padding when mini player is visible
+  const bottomPad = track ? "pb-36" : "pb-16";
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#0d0d0d" }}>
-      <div className="pb-16">
-        {tab === "home" && <HomePage />}
+      <div className={bottomPad}>
+        {tab === "home"      && <HomePage />}
         {tab === "downloads" && <DownloadsPage />}
-        {tab === "ai" && <AIChatPage />}
-        {tab === "adult" && <AdultPage />}
+        {tab === "ai"        && <AIChatPage />}
+        {tab === "adult"     && <AdultPage />}
       </div>
       <NavBar tab={tab} setTab={setTab} />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AudioPlayerProvider>
+      <AppInner />
+    </AudioPlayerProvider>
   );
 }
