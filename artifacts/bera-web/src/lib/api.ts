@@ -143,19 +143,43 @@ export async function aiChat(message: string): Promise<string> {
   return data.result || data.response || data.message || "No response";
 }
 
+function cleanLyrics(raw: string): string {
+  // Genius sometimes returns page meta like "3 ContributorSong Title LyricsActual lyrics..."
+  // Strip everything up to and including the trailing "Lyrics" header word
+  let text = raw.replace(/^\d+\s*Contributor[s]?.*?Lyrics/s, "").trim();
+  // Also strip a bare leading "Lyrics" marker if present
+  text = text.replace(/^Lyrics\s*/i, "").trim();
+  return text;
+}
+
+function looksLikeLyrics(text: string): boolean {
+  if (!text || text.length < 60) return false;
+  // Real lyrics have newlines, verse markers like [Verse], or repeated line breaks
+  const hasNewlines  = (text.match(/\n/g) || []).length >= 3;
+  const hasMarkers   = /\[(verse|chorus|intro|outro|bridge|hook|pre|refrain)/i.test(text);
+  const hasLineBreaks = /\r?\n/.test(text);
+  return hasNewlines || hasMarkers || hasLineBreaks;
+}
+
 export async function searchLyrics(query: string): Promise<LyricsResult> {
   const res = await fetch(`${BASE}/lyrics?query=${encodeURIComponent(query)}`);
   if (!res.ok) throw new Error(`Lyrics error ${res.status}`);
   const data = await res.json();
 
   const item = data.result || data;
-  const lyrics =
+  const rawLyrics =
     safeStr(item.lyrics) ||
     safeStr(item.lyric) ||
     safeStr(data.lyrics) ||
     safeStr(data.lyric);
 
-  if (!lyrics) throw new Error("Lyrics not found for this track");
+  if (!rawLyrics) throw new Error("Lyrics not found for this track");
+
+  const lyrics = cleanLyrics(rawLyrics);
+
+  if (!looksLikeLyrics(lyrics)) {
+    throw new Error("Lyrics not found for this track. Try searching with the exact artist and song name.");
+  }
 
   return {
     title: safeStr(item.title) || safeStr(data.title) || query,
