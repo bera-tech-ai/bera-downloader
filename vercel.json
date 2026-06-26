@@ -3,6 +3,10 @@
   "buildCommand": "pnpm --filter @workspace/bera-web run build",
   "outputDirectory": "artifacts/bera-web/dist/public",
   "framework": null,
+  "env": {
+    "PORT": "3000",
+    "BASE_PATH": "/"
+  },
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]

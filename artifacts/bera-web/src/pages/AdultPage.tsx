@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  Search, X, Loader2, Lock, ExternalLink,
+  Search, X, Loader2, Lock,
   Download, ChevronDown, Play, BookmarkPlus,
 } from "lucide-react";
 import { useAdultAuth } from "@/hooks/useAdultAuth";
@@ -73,10 +73,6 @@ function AdultCard({
   const [dlResult, setDlResult] = useState<AdultDownloadResult | null>(null);
   const [showPicker, setShowPicker] = useState(false);
 
-  function openVideo() {
-    if (item.url) window.open(item.url, "_blank", "noopener,noreferrer");
-  }
-
   function handlePlay(url: string) {
     setShowPicker(false);
     onPlay({ title: item.title || "Untitled", url, thumbnail: item.thumbnail });
@@ -143,7 +139,7 @@ function AdultCard({
     <div className="rounded-2xl overflow-hidden bg-card border border-border flex flex-col group transition-all hover:border-white/20">
       <div
         className="relative w-full aspect-video bg-black cursor-pointer overflow-hidden"
-        onClick={openVideo}
+        onClick={handleDownload}
       >
         {thumb ? (
           <img
@@ -166,7 +162,7 @@ function AdultCard({
         <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
           <div className="w-12 h-12 rounded-full bg-black/60 border border-white/25 flex items-center justify-center">
-            <ExternalLink className="w-5 h-5 text-white" />
+            <Play className="w-5 h-5 text-white" fill="white" />
           </div>
         </div>
       </div>
@@ -194,12 +190,17 @@ function AdultCard({
 
         <div className="mt-auto flex gap-2">
           <button
-            onClick={openVideo}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold text-white transition-opacity active:opacity-80"
+            onClick={handleDownload}
+            disabled={dlState === "loading"}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold text-white transition-opacity active:opacity-80 disabled:opacity-50"
             style={{ backgroundColor: "#c2185b" }}
           >
-            <ExternalLink className="w-3.5 h-3.5" />
-            Watch
+            {dlState === "loading" ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Play className="w-3.5 h-3.5" fill="white" />
+            )}
+            {dlState === "loading" ? "Loading…" : "Watch"}
           </button>
 
           <button
