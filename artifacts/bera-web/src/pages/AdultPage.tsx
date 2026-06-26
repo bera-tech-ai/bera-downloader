@@ -1,15 +1,62 @@
 import { useState } from "react";
-import { Search, X, Loader2, Lock, ExternalLink } from "lucide-react";
+import { Search, X, Loader2, Lock, ExternalLink, Download, ChevronDown } from "lucide-react";
 import { useAdultAuth } from "@/hooks/useAdultAuth";
 import { PinModal } from "@/components/PinModal";
-import { searchAdult, AdultResult } from "@/lib/api";
+import { searchAdult, downloadAdultVideo, AdultResult } from "@/lib/api";
 
 function AdultCard({ item }: { item: AdultResult }) {
   const thumb = item.thumbnail || "";
   const meta = [item.author, item.views && `${item.views} views`].filter(Boolean).join(" · ");
 
+  const [dlState, setDlState] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [dlMsg, setDlMsg]     = useState<string | null>(null);
+  const [files, setFiles]     = useState<{ high?: string; low?: string } | null>(null);
+  const [showPicker, setShowPicker] = useState(false);
+
   function openVideo() {
     if (item.url) window.open(item.url, "_blank", "noopener,noreferrer");
+  }
+
+  function triggerDownload(url: string) {
+    window.open(url, "_blank", "noopener,noreferrer");
+    setDlMsg("✓ Download started");
+    setDlState("done");
+    setShowPicker(false);
+    setTimeout(() => { setDlState("idle"); setDlMsg(null); }, 3000);
+  }
+
+  async function handleDownload() {
+    if (!item.url || dlState === "loading") return;
+
+    if (files) {
+      setShowPicker(true);
+      return;
+    }
+
+    setDlState("loading");
+    setDlMsg(null);
+    try {
+      const res = await downloadAdultVideo(item.url);
+      if (!res.success || !res.files) {
+        setDlMsg(res.error || "No download available");
+        setDlState("error");
+        setTimeout(() => { setDlState("idle"); setDlMsg(null); }, 3500);
+        return;
+      }
+      setFiles(res.files);
+      const keys = Object.keys(res.files).filter(k => !!(res.files as Record<string, unknown>)[k]);
+      if (keys.length === 1) {
+        const url = keys[0] === "high" ? res.files.high! : res.files.low!;
+        triggerDownload(url);
+      } else {
+        setShowPicker(true);
+        setDlState("idle");
+      }
+    } catch (e: unknown) {
+      setDlMsg((e as Error).message || "Download failed");
+      setDlState("error");
+      setTimeout(() => { setDlState("idle"); setDlMsg(null); }, 3500);
+    }
   }
 
   return (
@@ -51,14 +98,69 @@ function AdultCard({ item }: { item: AdultResult }) {
         {meta && (
           <p className="text-[11px] text-muted-foreground line-clamp-1">{meta}</p>
         )}
-        <button
-          onClick={openVideo}
-          className="mt-auto w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold text-white transition-opacity active:opacity-80"
-          style={{ backgroundColor: "#c2185b" }}
-        >
-          <ExternalLink className="w-3.5 h-3.5" />
-          Watch
-        </button>
+
+        {dlMsg && (
+          <p
+            className="text-[11px] font-semibold"
+            style={{ color: dlState === "done" ? "#22c55e" : "#ef4444" }}
+          >
+            {dlMsg}
+          </p>
+        )}
+
+        {showPicker && files && (
+          <div className="flex gap-1.5">
+            {files.high && (
+              <button
+                onClick={() => triggerDownload(files.high!)}
+                className="flex-1 py-1.5 rounded-lg text-xs font-bold text-white bg-[#1a237e] hover:bg-[#283593] transition-colors"
+              >
+                ⬇ HD
+              </button>
+            )}
+            {files.low && (
+              <button
+                onClick={() => triggerDownload(files.low!)}
+                className="flex-1 py-1.5 rounded-lg text-xs font-bold text-white bg-[#37474f] hover:bg-[#455a64] transition-colors"
+              >
+                ⬇ SD
+              </button>
+            )}
+            <button
+              onClick={() => setShowPicker(false)}
+              className="w-8 flex items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        )}
+
+        <div className="mt-auto flex gap-2">
+          <button
+            onClick={openVideo}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold text-white transition-opacity active:opacity-80"
+            style={{ backgroundColor: "#c2185b" }}
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            Watch
+          </button>
+
+          <button
+            onClick={handleDownload}
+            disabled={dlState === "loading"}
+            title="Download video"
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold text-white bg-[#1a237e] hover:bg-[#283593] active:opacity-80 transition-all disabled:opacity-50"
+          >
+            {dlState === "loading" ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : files ? (
+              <ChevronDown className="w-3.5 h-3.5" />
+            ) : (
+              <Download className="w-3.5 h-3.5" />
+            )}
+            {dlState === "loading" ? "Fetching…" : files ? "Quality" : "Download"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -66,15 +168,13 @@ function AdultCard({ item }: { item: AdultResult }) {
 
 function AdultContent() {
   const { lock, resetPin } = useAdultAuth();
-  const [query, setQuery] = useState("");
+  const [query, setQuery]   = useState("");
   const [results, setResults] = useState<AdultResult[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError]   = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
 
-  const QUICK = [
-    "popular", "trending", "amateur", "couple", "massage",
-  ];
+  const QUICK = ["popular", "trending", "amateur", "couple", "massage"];
 
   async function doSearch(q?: string) {
     const term = (q ?? query).trim();
@@ -97,13 +197,10 @@ function AdultContent() {
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: "#0d0d0d" }}>
       <div className="sticky top-0 z-30 border-b border-border bg-[#0d0d0d]/95 backdrop-blur px-3 pt-4 pb-3 space-y-3">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-base font-black" style={{ color: "#c2185b" }}>🔞 Adults Only</span>
-          </div>
+          <span className="text-base font-black" style={{ color: "#c2185b" }}>🔞 Adults Only</span>
           <div className="flex items-center gap-2">
             <button
               onClick={resetPin}
-              title="Reset PIN"
               className="text-[10px] px-2.5 py-1 rounded-full border border-border text-muted-foreground hover:text-foreground transition-colors"
             >
               Reset PIN
@@ -138,7 +235,7 @@ function AdultContent() {
           <button
             onClick={() => doSearch()}
             disabled={loading || !query.trim()}
-            className="h-11 px-4 rounded-xl text-sm font-bold text-white transition-opacity disabled:opacity-40 shrink-0"
+            className="h-11 px-4 rounded-xl text-sm font-bold text-white disabled:opacity-40 shrink-0"
             style={{ backgroundColor: "#c2185b" }}
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Go"}
@@ -203,15 +300,13 @@ function AdultContent() {
 
         {!searched && !loading && (
           <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
-            <div
-              className="w-20 h-20 rounded-full flex items-center justify-center text-4xl"
-              style={{ backgroundColor: "#c2185b15" }}
-            >
+            <div className="w-20 h-20 rounded-full flex items-center justify-center text-4xl" style={{ backgroundColor: "#c2185b15" }}>
               🔞
             </div>
             <p className="text-lg font-black text-foreground">Adult Content</p>
             <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
-              Search for adult videos above. All content opens in a new tab.
+              Search for adult videos. Tap <span className="font-bold text-foreground">Watch</span> to stream or{" "}
+              <span className="font-bold text-foreground">Download</span> to save in HD or SD.
             </p>
           </div>
         )}
@@ -221,7 +316,7 @@ function AdultContent() {
 }
 
 export function AdultPage() {
-  const { hasPin, unlocked, error, createPin, verifyPin, resetPin, clearError } = useAdultAuth();
+  const { hasPin, unlocked, error, createPin, verifyPin, resetPin } = useAdultAuth();
 
   if (!unlocked) {
     return (

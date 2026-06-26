@@ -107,4 +107,20 @@ router.get("/adult/search", async (req: Request, res: Response) => {
   }
 });
 
+router.get("/adult/download", async (req: Request, res: Response) => {
+  try {
+    let url = req.query["url"] as string;
+    if (!url) {
+      res.status(400).json({ error: "url is required" });
+      return;
+    }
+    url = url.replace(/xnxx\.com/g, "xnxx.health");
+    const { status, data } = await proxyGifted("/download/xnxxdl", { url });
+    res.status(status).json(data);
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Adult download failed" });
+  }
+});
+
 export default router;

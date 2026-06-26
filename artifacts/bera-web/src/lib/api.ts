@@ -40,6 +40,15 @@ export interface AdultResult {
   author?: string;
 }
 
+export interface AdultDownloadResult {
+  success: boolean;
+  title?: string;
+  thumbnail?: string;
+  duration?: string;
+  files?: { high?: string; low?: string };
+  error?: string;
+}
+
 function safeStr(val: unknown): string {
   if (!val) return "";
   if (typeof val === "string") return val;
@@ -159,6 +168,30 @@ export async function searchLyrics(query: string): Promise<LyricsResult> {
       "",
     lyrics,
     source: safeStr(item.source) || safeStr(data.source) || "",
+  };
+}
+
+export async function downloadAdultVideo(videoUrl: string): Promise<AdultDownloadResult> {
+  const res = await fetch(
+    `${BASE}/adult/download?url=${encodeURIComponent(videoUrl)}`
+  );
+  if (!res.ok) return { success: false, error: `Server error ${res.status}` };
+  const data = await res.json();
+  if (!data.success) return { success: false, error: data.message || "Download failed" };
+  const result = data.result || data;
+  const files = result.files || {};
+  const high = safeStr(files.high) || safeStr(files.HD) || safeStr(files["720p"]) || safeStr(files["1080p"]);
+  const low  = safeStr(files.low)  || safeStr(files.SD) || safeStr(files["360p"]) || safeStr(files["240p"]);
+  if (!high && !low) return { success: false, error: "No download files in response" };
+  return {
+    success: true,
+    title: safeStr(result.title) || safeStr(data.title),
+    thumbnail: safeStr(result.image) || safeStr(result.thumbnail) || safeStr(data.thumbnail),
+    duration: safeStr(result.duration) || safeStr(data.duration),
+    files: {
+      high: high || undefined,
+      low: low || undefined,
+    },
   };
 }
 
