@@ -1,0 +1,195 @@
+import { useState } from "react";
+import { Play, Music, Video, Loader2, Link2 } from "lucide-react";
+import { VideoResult, downloadMp3, downloadMp4, formatViews } from "@/lib/api";
+import { useDownloads } from "@/hooks/useDownloads";
+import { QualityModal } from "@/components/QualityModal";
+
+interface Props {
+  video: VideoResult;
+  onPlay: (video: VideoResult, url: string) => void;
+  compact?: boolean;
+}
+
+export function VideoCard({ video, onPlay, compact }: Props) {
+  const { addDownload } = useDownloads();
+  const [loading, setLoading] = useState<"play" | "dl" | null>(null);
+  const [modal, setModal] = useState<"mp3" | "mp4" | null>(null);
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  async function handlePlay() {
+    if (loading) return;
+    setLoading("play");
+    try {
+      const res = await downloadMp4(video.url, "720");
+      onPlay(video, res.success && res.downloadUrl ? res.downloadUrl : "");
+    } catch {
+      onPlay(video, "");
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function handleDownload(type: "mp3" | "mp4", quality: string) {
+    setLoading("dl");
+    setMsg(null);
+    try {
+      const res = type === "mp3"
+        ? await downloadMp3(video.url, quality)
+        : await downloadMp4(video.url, quality.replace("p", ""));
+
+      if (!res.success || !res.downloadUrl) {
+        setMsg({ text: res.error || "Download failed", ok: false });
+        return;
+      }
+
+      addDownload({
+        title: res.title || video.title,
+        thumbnail: res.thumbnail || video.thumbnail,
+        author: res.author || video.author,
+        duration: res.duration || video.duration,
+        type,
+        quality: type === "mp3" ? quality : quality + "p",
+        downloadUrl: res.downloadUrl,
+        status: "completed",
+        progress: 100,
+        videoId: video.id,
+      });
+
+      const a = document.createElement("a");
+      a.href = res.downloadUrl;
+      a.download = `${video.title.slice(0, 50)}.${type}`;
+      a.target = "_blank";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
+      setMsg({ text: `✓ Saved to Downloads tab`, ok: true });
+      setTimeout(() => setMsg(null), 3000);
+    } catch (e: unknown) {
+      setMsg({ text: (e as Error).message || "Failed", ok: false });
+    } finally {
+      setLoading(null);
+      setModal(null);
+    }
+  }
+
+  function copyLink() {
+    navigator.clipboard.writeText(video.url).then(() => {
+      setMsg({ text: "✓ Link copied!", ok: true });
+      setTimeout(() => setMsg(null), 2000);
+    });
+  }
+
+  const thumb = video.thumbnail || `https://img.youtube.com/vi/${video.id}/hqdefault.jpg`;
+  const meta = [video.author, video.views && formatViews(video.views), video.uploadedAt].filter(Boolean).join(" · ");
+
+  return (
+    <>
+      {modal && (
+        <QualityModal
+          type={modal}
+          title={video.title}
+          loading={loading === "dl"}
+          onSelect={(q) => handleDownload(modal, q)}
+          onClose={() => { setModal(null); setLoading(null); }}
+        />
+      )}
+
+      <div className={`rounded-2xl overflow-hidden bg-card border border-border flex flex-col group transition-all hover:border-white/20 ${compact ? "text-[11px]" : ""}`}>
+        <div
+          className="relative w-full aspect-video bg-black cursor-pointer overflow-hidden"
+          onClick={handlePlay}
+        >
+          <img
+            src={thumb}
+            alt={video.title}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            loading="lazy"
+          />
+          {video.duration && (
+            <span className="absolute bottom-2 right-2 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded-md font-bold z-10">
+              {video.duration}
+            </span>
+          )}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            {loading === "play" ? (
+              <div className="w-12 h-12 rounded-full bg-black/70 flex items-center justify-center">
+                <Loader2 className="w-5 h-5 text-white animate-spin" />
+              </div>
+            ) : (
+              <div className="w-12 h-12 rounded-full bg-black/50 border border-white/25 flex items-center justify-center opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100 transition-all duration-200">
+                <Play className="w-5 h-5 text-white fill-white ml-0.5" />
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="p-3 flex flex-col gap-2 flex-1">
+          <p className={`font-semibold text-foreground line-clamp-2 leading-snug ${compact ? "text-[12px]" : "text-[13px]"}`}>
+            {video.title}
+          </p>
+          {meta && (
+            <p className="text-[11px] text-muted-foreground line-clamp-1">{meta}</p>
+          )}
+
+          {msg && (
+            <p className="text-[11px] font-semibold" style={{ color: msg.ok ? "#22c55e" : "#ef4444" }}>
+              {msg.text}
+            </p>
+          )}
+
+          <div className="flex gap-1.5 mt-auto pt-0.5">
+            <button
+              onClick={handlePlay}
+              disabled={!!loading}
+              title="Watch"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-border text-[11px] font-semibold text-foreground hover:bg-muted active:scale-95 transition-all disabled:opacity-40"
+            >
+              <Play className="w-3 h-3 fill-foreground" />
+              <span className="hidden sm:inline">Play</span>
+            </button>
+
+            <button
+              onClick={() => setModal("mp3")}
+              disabled={!!loading}
+              title="Download MP3"
+              className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[11px] font-bold text-white active:scale-95 transition-all disabled:opacity-40"
+              style={{ backgroundColor: "#FF4500" }}
+            >
+              {loading === "dl" && modal === "mp3" ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Music className="w-3 h-3" />
+              )}
+              MP3
+            </button>
+
+            <button
+              onClick={() => setModal("mp4")}
+              disabled={!!loading}
+              title="Download MP4"
+              className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[11px] font-bold text-white bg-blue-700 hover:bg-blue-600 active:scale-95 transition-all disabled:opacity-40"
+            >
+              {loading === "dl" && modal === "mp4" ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Video className="w-3 h-3" />
+              )}
+              MP4
+            </button>
+
+            <button
+              onClick={copyLink}
+              disabled={!!loading}
+              title="Copy YouTube link"
+              className="w-8 flex items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all"
+            >
+              <Link2 className="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
