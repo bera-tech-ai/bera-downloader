@@ -57,11 +57,13 @@ function QualityPicker({
 
 function AdultCard({
   item,
+  index,
   onPlay,
   onSaved,
 }: {
   item: AdultResult;
-  onPlay: (state: AdultPlayerState) => void;
+  index: number;
+  onPlay: (state: AdultPlayerState, index: number) => void;
   onSaved: (msg: string) => void;
 }) {
   const { addAdultDownload } = useAdultDownloads();
@@ -94,7 +96,7 @@ function AdultCard({
 
     if (dlResult?.files) {
       const url = dlResult.files.high || dlResult.files.low!;
-      onPlay({ title: item.title || "Untitled", url, thumbnail: item.thumbnail });
+      onPlay({ title: item.title || "Untitled", url, thumbnail: item.thumbnail }, index);
       return;
     }
 
@@ -111,7 +113,7 @@ function AdultCard({
       setDlResult(res); // cache so Download button can reuse
       const url = res.files.high || res.files.low!;
       setWatchState("idle");
-      onPlay({ title: item.title || "Untitled", url, thumbnail: item.thumbnail });
+      onPlay({ title: item.title || "Untitled", url, thumbnail: item.thumbnail }, index);
     } catch (e: unknown) {
       setWatchMsg((e as Error).message || "Failed");
       setWatchState("error");
@@ -195,7 +197,7 @@ function AdultCard({
         {showPicker && dlResult?.files && (
           <QualityPicker
             files={dlResult.files}
-            onPlay={(url) => { setShowPicker(false); onPlay({ title: item.title || "Untitled", url, thumbnail: item.thumbnail }); }}
+            onPlay={(url) => { setShowPicker(false); onPlay({ title: item.title || "Untitled", url, thumbnail: item.thumbnail }, index); }}
             onSave={handleSave}
             onClose={() => setShowPicker(false)}
           />
@@ -238,13 +240,15 @@ function AdultCard({
 
 function AdultContent() {
   const { lock, resetPin } = useAdultAuth();
-  const [query, setQuery]     = useState("");
-  const [results, setResults] = useState<AdultResult[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState<string | null>(null);
+  const [query, setQuery]       = useState("");
+  const [results, setResults]   = useState<AdultResult[]>([]);
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
-  const [player, setPlayer]   = useState<AdultPlayerState | null>(null);
-  const [toast, setToast]     = useState<string | null>(null);
+  const [player, setPlayer]     = useState<AdultPlayerState | null>(null);
+  const [currentIndex, setCurrentIndex] = useState<number | null>(null);
+  const [loadingNav, setLoadingNav]     = useState(false);
+  const [toast, setToast]       = useState<string | null>(null);
 
   const QUICK = ["popular", "trending", "amateur", "couple", "massage"];
 
@@ -260,6 +264,8 @@ function AdultContent() {
     setLoading(true);
     setError(null);
     setSearched(true);
+    setPlayer(null);
+    setCurrentIndex(null);
     try {
       const data = await searchAdult(term);
       setResults(data);
@@ -270,10 +276,40 @@ function AdultContent() {
     }
   }
 
+  async function navigateTo(index: number) {
+    if (index < 0 || index >= results.length || loadingNav) return;
+    const item = results[index];
+    setLoadingNav(true);
+    try {
+      const res = await downloadAdultVideo(item.url);
+      if (!res.success || !res.files) {
+        showToast("Could not load video");
+        return;
+      }
+      const url = res.files.high || res.files.low!;
+      setPlayer({ title: item.title || "Untitled", url, thumbnail: item.thumbnail });
+      setCurrentIndex(index);
+    } catch {
+      showToast("Failed to load video");
+    } finally {
+      setLoadingNav(false);
+    }
+  }
+
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: "#0d0d0d" }}>
       {player && (
-        <AdultVideoPlayer player={player} onClose={() => setPlayer(null)} />
+        <AdultVideoPlayer
+          player={player}
+          onClose={() => { setPlayer(null); setCurrentIndex(null); }}
+          onPrev={currentIndex != null && currentIndex > 0 ? () => navigateTo(currentIndex - 1) : undefined}
+          onNext={currentIndex != null && currentIndex < results.length - 1 ? () => navigateTo(currentIndex + 1) : undefined}
+          hasPrev={currentIndex != null && currentIndex > 0}
+          hasNext={currentIndex != null && currentIndex < results.length - 1}
+          loadingNav={loadingNav}
+          currentIndex={currentIndex ?? undefined}
+          total={results.length > 0 ? results.length : undefined}
+        />
       )}
 
       {toast && (
@@ -383,7 +419,8 @@ function AdultContent() {
               <AdultCard
                 key={item.id || i}
                 item={item}
-                onPlay={setPlayer}
+                index={i}
+                onPlay={(state, idx) => { setPlayer(state); setCurrentIndex(idx); }}
                 onSaved={showToast}
               />
             ))}
