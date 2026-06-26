@@ -172,8 +172,10 @@ export async function searchLyrics(query: string): Promise<LyricsResult> {
 }
 
 export async function downloadAdultVideo(videoUrl: string): Promise<AdultDownloadResult> {
+  // Swap domain before sending — gifted API resolves xnxx.health not xnxx.com
+  const safeUrl = videoUrl.replace(/xnxx\.com/g, "xnxx.health");
   const res = await fetch(
-    `${BASE}/adult/download?url=${encodeURIComponent(videoUrl)}`
+    `${BASE}/adult/download?url=${encodeURIComponent(safeUrl)}`
   );
   if (!res.ok) return { success: false, error: `Server error ${res.status}` };
   const data = await res.json();

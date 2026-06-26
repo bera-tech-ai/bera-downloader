@@ -7,8 +7,35 @@
     "PORT": "3000",
     "BASE_PATH": "/"
   },
-  "routes": [
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
+  "rewrites": [
+    {
+      "source": "/api/gifted/search",
+      "destination": "https://api.gifted.co.ke/api/search/yts?apikey=_0u5aff45%2C_0l1876s8qc"
+    },
+    {
+      "source": "/api/gifted/download/mp3",
+      "destination": "https://api.gifted.co.ke/api/download/ytmp3?apikey=_0u5aff45%2C_0l1876s8qc"
+    },
+    {
+      "source": "/api/gifted/download/mp4",
+      "destination": "https://api.gifted.co.ke/api/download/ytmp4v2?apikey=_0u5aff45%2C_0l1876s8qc"
+    },
+    {
+      "source": "/api/gifted/ai/chat",
+      "destination": "https://api.gifted.co.ke/api/ai/overchat?apikey=_0u5aff45%2C_0l1876s8qc"
+    },
+    {
+      "source": "/api/gifted/lyrics",
+      "destination": "https://api.gifted.co.ke/api/search/lyrics?apikey=_0u5aff45%2C_0l1876s8qc"
+    },
+    {
+      "source": "/api/gifted/adult/search",
+      "destination": "https://api.gifted.co.ke/api/search/xnxxsearch?apikey=_0u5aff45%2C_0l1876s8qc"
+    },
+    {
+      "source": "/api/gifted/adult/download",
+      "destination": "https://api.gifted.co.ke/api/download/xnxxdl?apikey=_0u5aff45%2C_0l1876s8qc"
+    },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
