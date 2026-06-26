@@ -5,8 +5,9 @@ import { DownloadsPage } from "@/pages/DownloadsPage";
 import { AIChatPage } from "@/pages/AIChatPage";
 import { AdultPage } from "@/pages/AdultPage";
 import { useDownloads } from "@/hooks/useDownloads";
-import { useFavorites } from "@/hooks/useFavorites";
 import { AudioPlayerProvider, useAudioPlayer } from "@/context/AudioPlayerContext";
+import { FavoritesProvider, useFavorites } from "@/context/FavoritesContext";
+import { QualityPreferenceProvider } from "@/context/QualityPreferenceContext";
 
 const TABS = [
   { id: "home",      label: "Search",    icon: Search },
@@ -19,7 +20,7 @@ type Tab = (typeof TABS)[number]["id"];
 
 function NavBar({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
   const { downloads } = useDownloads();
-  const { favorites } = useFavorites();
+  const { favorites }  = useFavorites();
   const dlCount = downloads.filter(d => d.status === "completed").length + favorites.length;
 
   return (
@@ -30,7 +31,6 @@ function NavBar({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
           const isAdult = id === "adult";
           const activeColor = isAdult ? "#c2185b" : "#FF4500";
           const color = active ? activeColor : "#6b7280";
-
           return (
             <button
               key={id}
@@ -69,7 +69,6 @@ function NavBar({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
 function AppInner() {
   const [tab, setTab] = useState<Tab>("home");
   const { track } = useAudioPlayer();
-  // Extra bottom padding when mini player is visible
   const bottomPad = track ? "pb-36" : "pb-16";
 
   return (
@@ -87,8 +86,12 @@ function AppInner() {
 
 export default function App() {
   return (
-    <AudioPlayerProvider>
-      <AppInner />
-    </AudioPlayerProvider>
+    <FavoritesProvider>
+      <QualityPreferenceProvider>
+        <AudioPlayerProvider>
+          <AppInner />
+        </AudioPlayerProvider>
+      </QualityPreferenceProvider>
+    </FavoritesProvider>
   );
 }
