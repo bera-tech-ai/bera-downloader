@@ -1,35 +1,266 @@
-import { useState } from "react";
-import { Search, X, Loader2, Lock, ExternalLink, Download, ChevronDown } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import {
+  Search, X, Loader2, Lock, ExternalLink,
+  Download, ChevronDown, Play, Volume2, VolumeX,
+  Maximize, Minimize, Pause,
+} from "lucide-react";
 import { useAdultAuth } from "@/hooks/useAdultAuth";
 import { PinModal } from "@/components/PinModal";
-import { searchAdult, downloadAdultVideo, AdultResult } from "@/lib/api";
+import { searchAdult, downloadAdultVideo, AdultResult, AdultDownloadResult } from "@/lib/api";
 
-function AdultCard({ item }: { item: AdultResult }) {
+interface PlayerState {
+  title: string;
+  url: string;
+  thumbnail?: string;
+}
+
+function AdultPlayer({ player, onClose }: { player: PlayerState; onClose: () => void }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [muted, setMuted]     = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.play().then(() => setPlaying(true)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === " ") { e.preventDefault(); togglePlay(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  function togglePlay() {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) { v.play(); setPlaying(true); } else { v.pause(); setPlaying(false); }
+  }
+
+  function toggleMute() {
+    const v = videoRef.current;
+    if (!v) return;
+    v.muted = !v.muted;
+    setMuted(v.muted);
+  }
+
+  function toggleFullscreen() {
+    const el = containerRef.current;
+    if (!el) return;
+    if (!document.fullscreenElement) {
+      el.requestFullscreen().then(() => setFullscreen(true)).catch(() => {});
+    } else {
+      document.exitFullscreen().then(() => setFullscreen(false)).catch(() => {});
+    }
+  }
+
+  function onTimeUpdate() {
+    const v = videoRef.current;
+    if (!v || !v.duration) return;
+    setProgress((v.currentTime / v.duration) * 100);
+    setDuration(v.duration);
+  }
+
+  function seek(e: React.MouseEvent<HTMLDivElement>) {
+    const v = videoRef.current;
+    if (!v || !v.duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pct = (e.clientX - rect.left) / rect.width;
+    v.currentTime = pct * v.duration;
+  }
+
+  function fmtTime(s: number) {
+    if (!s || isNaN(s)) return "0:00";
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-black"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div ref={containerRef} className="relative w-full max-w-5xl px-0 sm:px-4">
+        <div className="flex items-center justify-between px-4 py-3">
+          <p className="text-white text-sm font-semibold line-clamp-1 flex-1 pr-4">
+            {player.title}
+          </p>
+          <button
+            onClick={onClose}
+            className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-colors shrink-0"
+          >
+            <X className="w-5 h-5 text-white" />
+          </button>
+        </div>
+
+        <div className="relative w-full aspect-video bg-black rounded-xl overflow-hidden shadow-2xl group">
+          <video
+            ref={videoRef}
+            src={player.url}
+            poster={player.thumbnail}
+            className="w-full h-full object-contain"
+            onTimeUpdate={onTimeUpdate}
+            onLoadedMetadata={() => setDuration(videoRef.current?.duration || 0)}
+            onPlay={() => setPlaying(true)}
+            onPause={() => setPlaying(false)}
+            onEnded={() => setPlaying(false)}
+            playsInline
+          />
+
+          <div
+            className="absolute inset-0 flex items-center justify-center cursor-pointer"
+            onClick={togglePlay}
+          >
+            {!playing && (
+              <div className="w-16 h-16 rounded-full bg-black/60 border-2 border-white/30 flex items-center justify-center">
+                <Play className="w-7 h-7 text-white ml-1" fill="white" />
+              </div>
+            )}
+          </div>
+
+          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+            <div
+              className="w-full h-1.5 bg-white/20 rounded-full cursor-pointer mb-3"
+              onClick={seek}
+            >
+              <div
+                className="h-full bg-[#c2185b] rounded-full transition-all"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button onClick={togglePlay} className="text-white hover:text-[#c2185b] transition-colors">
+                {playing
+                  ? <Pause className="w-5 h-5" fill="white" />
+                  : <Play className="w-5 h-5" fill="white" />
+                }
+              </button>
+
+              <button onClick={toggleMute} className="text-white hover:text-[#c2185b] transition-colors">
+                {muted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+              </button>
+
+              <span className="text-white/60 text-xs tabular-nums">
+                {fmtTime((progress / 100) * duration)} / {fmtTime(duration)}
+              </span>
+
+              <div className="flex-1" />
+
+              <a
+                href={player.url}
+                download
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-white/60 hover:text-white transition-colors"
+                title="Save to device"
+              >
+                <Download className="w-4 h-4" />
+              </a>
+
+              <button onClick={toggleFullscreen} className="text-white hover:text-[#c2185b] transition-colors">
+                {fullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <p className="text-center text-white/30 text-xs py-2">
+          Click outside or press Esc to close
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function QualityPicker({
+  files,
+  onPlay,
+  onSave,
+  onClose,
+}: {
+  files: { high?: string; low?: string };
+  onPlay: (url: string, label: string) => void;
+  onSave: (url: string) => void;
+  onClose: () => void;
+}) {
+  const opts: { label: string; url: string }[] = [];
+  if (files.high) opts.push({ label: "HD", url: files.high });
+  if (files.low)  opts.push({ label: "SD", url: files.low });
+
+  return (
+    <div className="mt-1.5 rounded-xl border border-border bg-card/90 p-2 space-y-1.5">
+      {opts.map(({ label, url }) => (
+        <div key={label} className="flex gap-1.5">
+          <button
+            onClick={() => onPlay(url, label)}
+            className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[11px] font-bold text-white transition-colors"
+            style={{ backgroundColor: "#c2185b" }}
+          >
+            <Play className="w-3 h-3" fill="white" />
+            Play {label}
+          </button>
+          <button
+            onClick={() => onSave(url)}
+            className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[11px] font-bold text-white bg-[#1a237e] hover:bg-[#283593] transition-colors"
+          >
+            <Download className="w-3 h-3" />
+            Save {label}
+          </button>
+        </div>
+      ))}
+      <button
+        onClick={onClose}
+        className="w-full py-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+      >
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+function AdultCard({
+  item,
+  onPlay,
+}: {
+  item: AdultResult;
+  onPlay: (state: PlayerState) => void;
+}) {
   const thumb = item.thumbnail || "";
   const meta = [item.author, item.views && `${item.views} views`].filter(Boolean).join(" · ");
 
-  const [dlState, setDlState] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [dlState, setDlState] = useState<"idle" | "loading" | "error">("idle");
   const [dlMsg, setDlMsg]     = useState<string | null>(null);
-  const [files, setFiles]     = useState<{ high?: string; low?: string } | null>(null);
+  const [dlResult, setDlResult] = useState<AdultDownloadResult | null>(null);
   const [showPicker, setShowPicker] = useState(false);
 
   function openVideo() {
     if (item.url) window.open(item.url, "_blank", "noopener,noreferrer");
   }
 
-  function triggerDownload(url: string) {
+  function handleSave(url: string) {
     window.open(url, "_blank", "noopener,noreferrer");
-    setDlMsg("✓ Download started");
-    setDlState("done");
     setShowPicker(false);
-    setTimeout(() => { setDlState("idle"); setDlMsg(null); }, 3000);
+  }
+
+  function handlePlay(url: string) {
+    setShowPicker(false);
+    onPlay({ title: item.title || "Untitled", url, thumbnail: item.thumbnail });
   }
 
   async function handleDownload() {
-    if (!item.url || dlState === "loading") return;
+    if (dlState === "loading") return;
 
-    if (files) {
-      setShowPicker(true);
+    if (dlResult?.files) {
+      setShowPicker((s) => !s);
       return;
     }
 
@@ -43,17 +274,20 @@ function AdultCard({ item }: { item: AdultResult }) {
         setTimeout(() => { setDlState("idle"); setDlMsg(null); }, 3500);
         return;
       }
-      setFiles(res.files);
-      const keys = Object.keys(res.files).filter(k => !!(res.files as Record<string, unknown>)[k]);
+      setDlResult(res);
+
+      const keys = (["high", "low"] as const).filter((k) => !!res.files![k]);
       if (keys.length === 1) {
-        const url = keys[0] === "high" ? res.files.high! : res.files.low!;
-        triggerDownload(url);
-      } else {
-        setShowPicker(true);
+        const url = res.files![keys[0]]!;
         setDlState("idle");
+        onPlay({ title: item.title || "Untitled", url, thumbnail: item.thumbnail });
+        return;
       }
+
+      setShowPicker(true);
+      setDlState("idle");
     } catch (e: unknown) {
-      setDlMsg((e as Error).message || "Download failed");
+      setDlMsg((e as Error).message || "Failed");
       setDlState("error");
       setTimeout(() => { setDlState("idle"); setDlMsg(null); }, 3500);
     }
@@ -100,39 +334,16 @@ function AdultCard({ item }: { item: AdultResult }) {
         )}
 
         {dlMsg && (
-          <p
-            className="text-[11px] font-semibold"
-            style={{ color: dlState === "done" ? "#22c55e" : "#ef4444" }}
-          >
-            {dlMsg}
-          </p>
+          <p className="text-[11px] font-semibold text-red-400">{dlMsg}</p>
         )}
 
-        {showPicker && files && (
-          <div className="flex gap-1.5">
-            {files.high && (
-              <button
-                onClick={() => triggerDownload(files.high!)}
-                className="flex-1 py-1.5 rounded-lg text-xs font-bold text-white bg-[#1a237e] hover:bg-[#283593] transition-colors"
-              >
-                ⬇ HD
-              </button>
-            )}
-            {files.low && (
-              <button
-                onClick={() => triggerDownload(files.low!)}
-                className="flex-1 py-1.5 rounded-lg text-xs font-bold text-white bg-[#37474f] hover:bg-[#455a64] transition-colors"
-              >
-                ⬇ SD
-              </button>
-            )}
-            <button
-              onClick={() => setShowPicker(false)}
-              className="w-8 flex items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          </div>
+        {showPicker && dlResult?.files && (
+          <QualityPicker
+            files={dlResult.files}
+            onPlay={handlePlay}
+            onSave={handleSave}
+            onClose={() => setShowPicker(false)}
+          />
         )}
 
         <div className="mt-auto flex gap-2">
@@ -148,17 +359,16 @@ function AdultCard({ item }: { item: AdultResult }) {
           <button
             onClick={handleDownload}
             disabled={dlState === "loading"}
-            title="Download video"
             className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold text-white bg-[#1a237e] hover:bg-[#283593] active:opacity-80 transition-all disabled:opacity-50"
           >
             {dlState === "loading" ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : files ? (
+            ) : dlResult ? (
               <ChevronDown className="w-3.5 h-3.5" />
             ) : (
               <Download className="w-3.5 h-3.5" />
             )}
-            {dlState === "loading" ? "Fetching…" : files ? "Quality" : "Download"}
+            {dlState === "loading" ? "Loading…" : dlResult ? "Options" : "Download"}
           </button>
         </div>
       </div>
@@ -168,11 +378,12 @@ function AdultCard({ item }: { item: AdultResult }) {
 
 function AdultContent() {
   const { lock, resetPin } = useAdultAuth();
-  const [query, setQuery]   = useState("");
+  const [query, setQuery]     = useState("");
   const [results, setResults] = useState<AdultResult[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError]   = useState<string | null>(null);
+  const [error, setError]     = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
+  const [player, setPlayer]   = useState<PlayerState | null>(null);
 
   const QUICK = ["popular", "trending", "amateur", "couple", "massage"];
 
@@ -195,6 +406,10 @@ function AdultContent() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: "#0d0d0d" }}>
+      {player && (
+        <AdultPlayer player={player} onClose={() => setPlayer(null)} />
+      )}
+
       <div className="sticky top-0 z-30 border-b border-border bg-[#0d0d0d]/95 backdrop-blur px-3 pt-4 pb-3 space-y-3">
         <div className="flex items-center justify-between">
           <span className="text-base font-black" style={{ color: "#c2185b" }}>🔞 Adults Only</span>
@@ -293,7 +508,7 @@ function AdultContent() {
         {!loading && results.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {results.map((item, i) => (
-              <AdultCard key={item.id || i} item={item} />
+              <AdultCard key={item.id || i} item={item} onPlay={setPlayer} />
             ))}
           </div>
         )}
@@ -305,8 +520,9 @@ function AdultContent() {
             </div>
             <p className="text-lg font-black text-foreground">Adult Content</p>
             <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
-              Search for adult videos. Tap <span className="font-bold text-foreground">Watch</span> to stream or{" "}
-              <span className="font-bold text-foreground">Download</span> to save in HD or SD.
+              Search for adult videos. Tap <span className="font-bold text-foreground">Download</span> on any result to{" "}
+              <span className="font-bold text-foreground">Play</span> or{" "}
+              <span className="font-bold text-foreground">Save</span> in HD or SD.
             </p>
           </div>
         )}
