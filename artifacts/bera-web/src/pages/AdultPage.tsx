@@ -1,185 +1,13 @@
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import {
   Search, X, Loader2, Lock, ExternalLink,
-  Download, ChevronDown, Play, Volume2, VolumeX,
-  Maximize, Minimize, Pause,
+  Download, ChevronDown, Play, BookmarkPlus,
 } from "lucide-react";
 import { useAdultAuth } from "@/hooks/useAdultAuth";
+import { useAdultDownloads } from "@/hooks/useAdultDownloads";
 import { PinModal } from "@/components/PinModal";
+import { AdultVideoPlayer, AdultPlayerState } from "@/components/AdultVideoPlayer";
 import { searchAdult, downloadAdultVideo, AdultResult, AdultDownloadResult } from "@/lib/api";
-
-interface PlayerState {
-  title: string;
-  url: string;
-  thumbnail?: string;
-}
-
-function AdultPlayer({ player, onClose }: { player: PlayerState; onClose: () => void }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [playing, setPlaying] = useState(false);
-  const [muted, setMuted]     = useState(false);
-  const [fullscreen, setFullscreen] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    v.play().then(() => setPlaying(true)).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      if (e.key === " ") { e.preventDefault(); togglePlay(); }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
-
-  function togglePlay() {
-    const v = videoRef.current;
-    if (!v) return;
-    if (v.paused) { v.play(); setPlaying(true); } else { v.pause(); setPlaying(false); }
-  }
-
-  function toggleMute() {
-    const v = videoRef.current;
-    if (!v) return;
-    v.muted = !v.muted;
-    setMuted(v.muted);
-  }
-
-  function toggleFullscreen() {
-    const el = containerRef.current;
-    if (!el) return;
-    if (!document.fullscreenElement) {
-      el.requestFullscreen().then(() => setFullscreen(true)).catch(() => {});
-    } else {
-      document.exitFullscreen().then(() => setFullscreen(false)).catch(() => {});
-    }
-  }
-
-  function onTimeUpdate() {
-    const v = videoRef.current;
-    if (!v || !v.duration) return;
-    setProgress((v.currentTime / v.duration) * 100);
-    setDuration(v.duration);
-  }
-
-  function seek(e: React.MouseEvent<HTMLDivElement>) {
-    const v = videoRef.current;
-    if (!v || !v.duration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const pct = (e.clientX - rect.left) / rect.width;
-    v.currentTime = pct * v.duration;
-  }
-
-  function fmtTime(s: number) {
-    if (!s || isNaN(s)) return "0:00";
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60);
-    return `${m}:${sec.toString().padStart(2, "0")}`;
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-black"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div ref={containerRef} className="relative w-full max-w-5xl px-0 sm:px-4">
-        <div className="flex items-center justify-between px-4 py-3">
-          <p className="text-white text-sm font-semibold line-clamp-1 flex-1 pr-4">
-            {player.title}
-          </p>
-          <button
-            onClick={onClose}
-            className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-colors shrink-0"
-          >
-            <X className="w-5 h-5 text-white" />
-          </button>
-        </div>
-
-        <div className="relative w-full aspect-video bg-black rounded-xl overflow-hidden shadow-2xl group">
-          <video
-            ref={videoRef}
-            src={player.url}
-            poster={player.thumbnail}
-            className="w-full h-full object-contain"
-            onTimeUpdate={onTimeUpdate}
-            onLoadedMetadata={() => setDuration(videoRef.current?.duration || 0)}
-            onPlay={() => setPlaying(true)}
-            onPause={() => setPlaying(false)}
-            onEnded={() => setPlaying(false)}
-            playsInline
-          />
-
-          <div
-            className="absolute inset-0 flex items-center justify-center cursor-pointer"
-            onClick={togglePlay}
-          >
-            {!playing && (
-              <div className="w-16 h-16 rounded-full bg-black/60 border-2 border-white/30 flex items-center justify-center">
-                <Play className="w-7 h-7 text-white ml-1" fill="white" />
-              </div>
-            )}
-          </div>
-
-          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-            <div
-              className="w-full h-1.5 bg-white/20 rounded-full cursor-pointer mb-3"
-              onClick={seek}
-            >
-              <div
-                className="h-full bg-[#c2185b] rounded-full transition-all"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-
-            <div className="flex items-center gap-3">
-              <button onClick={togglePlay} className="text-white hover:text-[#c2185b] transition-colors">
-                {playing
-                  ? <Pause className="w-5 h-5" fill="white" />
-                  : <Play className="w-5 h-5" fill="white" />
-                }
-              </button>
-
-              <button onClick={toggleMute} className="text-white hover:text-[#c2185b] transition-colors">
-                {muted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-              </button>
-
-              <span className="text-white/60 text-xs tabular-nums">
-                {fmtTime((progress / 100) * duration)} / {fmtTime(duration)}
-              </span>
-
-              <div className="flex-1" />
-
-              <a
-                href={player.url}
-                download
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-white/60 hover:text-white transition-colors"
-                title="Save to device"
-              >
-                <Download className="w-4 h-4" />
-              </a>
-
-              <button onClick={toggleFullscreen} className="text-white hover:text-[#c2185b] transition-colors">
-                {fullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <p className="text-center text-white/30 text-xs py-2">
-          Click outside or press Esc to close
-        </p>
-      </div>
-    </div>
-  );
-}
 
 function QualityPicker({
   files,
@@ -189,7 +17,7 @@ function QualityPicker({
 }: {
   files: { high?: string; low?: string };
   onPlay: (url: string, label: string) => void;
-  onSave: (url: string) => void;
+  onSave: (url: string, label: string) => void;
   onClose: () => void;
 }) {
   const opts: { label: string; url: string }[] = [];
@@ -209,10 +37,10 @@ function QualityPicker({
             Play {label}
           </button>
           <button
-            onClick={() => onSave(url)}
+            onClick={() => onSave(url, label)}
             className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[11px] font-bold text-white bg-[#1a237e] hover:bg-[#283593] transition-colors"
           >
-            <Download className="w-3 h-3" />
+            <BookmarkPlus className="w-3 h-3" />
             Save {label}
           </button>
         </div>
@@ -230,15 +58,18 @@ function QualityPicker({
 function AdultCard({
   item,
   onPlay,
+  onSaved,
 }: {
   item: AdultResult;
-  onPlay: (state: PlayerState) => void;
+  onPlay: (state: AdultPlayerState) => void;
+  onSaved: (msg: string) => void;
 }) {
+  const { addAdultDownload } = useAdultDownloads();
   const thumb = item.thumbnail || "";
-  const meta = [item.author, item.views && `${item.views} views`].filter(Boolean).join(" · ");
+  const meta  = [item.author, item.views && `${item.views} views`].filter(Boolean).join(" · ");
 
-  const [dlState, setDlState] = useState<"idle" | "loading" | "error">("idle");
-  const [dlMsg, setDlMsg]     = useState<string | null>(null);
+  const [dlState, setDlState]   = useState<"idle" | "loading" | "error">("idle");
+  const [dlMsg, setDlMsg]       = useState<string | null>(null);
   const [dlResult, setDlResult] = useState<AdultDownloadResult | null>(null);
   const [showPicker, setShowPicker] = useState(false);
 
@@ -246,14 +77,21 @@ function AdultCard({
     if (item.url) window.open(item.url, "_blank", "noopener,noreferrer");
   }
 
-  function handleSave(url: string) {
-    window.open(url, "_blank", "noopener,noreferrer");
-    setShowPicker(false);
-  }
-
   function handlePlay(url: string) {
     setShowPicker(false);
     onPlay({ title: item.title || "Untitled", url, thumbnail: item.thumbnail });
+  }
+
+  function handleSave(url: string, label: string) {
+    setShowPicker(false);
+    addAdultDownload({
+      title: item.title || "Untitled",
+      thumbnail: item.thumbnail,
+      duration: item.duration,
+      highUrl: label === "HD" ? url : dlResult?.files?.high,
+      lowUrl:  label === "SD" ? url : dlResult?.files?.low,
+    });
+    onSaved(`✓ Saved to Downloads (${label})`);
   }
 
   async function handleDownload() {
@@ -281,6 +119,14 @@ function AdultCard({
         const url = res.files![keys[0]]!;
         setDlState("idle");
         onPlay({ title: item.title || "Untitled", url, thumbnail: item.thumbnail });
+        addAdultDownload({
+          title: item.title || "Untitled",
+          thumbnail: item.thumbnail,
+          duration: item.duration,
+          highUrl: res.files!.high,
+          lowUrl:  res.files!.low,
+        });
+        onSaved("✓ Saved to Downloads");
         return;
       }
 
@@ -383,9 +229,15 @@ function AdultContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
-  const [player, setPlayer]   = useState<PlayerState | null>(null);
+  const [player, setPlayer]   = useState<AdultPlayerState | null>(null);
+  const [toast, setToast]     = useState<string | null>(null);
 
   const QUICK = ["popular", "trending", "amateur", "couple", "massage"];
+
+  function showToast(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  }
 
   async function doSearch(q?: string) {
     const term = (q ?? query).trim();
@@ -407,7 +259,13 @@ function AdultContent() {
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: "#0d0d0d" }}>
       {player && (
-        <AdultPlayer player={player} onClose={() => setPlayer(null)} />
+        <AdultVideoPlayer player={player} onClose={() => setPlayer(null)} />
+      )}
+
+      {toast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] bg-[#1a237e] text-white text-xs font-bold px-4 py-2 rounded-full shadow-xl animate-in fade-in slide-in-from-top-2">
+          {toast}
+        </div>
       )}
 
       <div className="sticky top-0 z-30 border-b border-border bg-[#0d0d0d]/95 backdrop-blur px-3 pt-4 pb-3 space-y-3">
@@ -508,7 +366,12 @@ function AdultContent() {
         {!loading && results.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {results.map((item, i) => (
-              <AdultCard key={item.id || i} item={item} onPlay={setPlayer} />
+              <AdultCard
+                key={item.id || i}
+                item={item}
+                onPlay={setPlayer}
+                onSaved={showToast}
+              />
             ))}
           </div>
         )}
@@ -520,9 +383,9 @@ function AdultContent() {
             </div>
             <p className="text-lg font-black text-foreground">Adult Content</p>
             <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
-              Search for adult videos. Tap <span className="font-bold text-foreground">Download</span> on any result to{" "}
-              <span className="font-bold text-foreground">Play</span> or{" "}
-              <span className="font-bold text-foreground">Save</span> in HD or SD.
+              Search for adult videos. Tap <span className="font-bold text-foreground">Download</span> to pick quality — then{" "}
+              <span className="font-bold text-foreground">Play</span> in-app or{" "}
+              <span className="font-bold text-foreground">Save</span> to the Downloads tab for offline viewing.
             </p>
           </div>
         )}
