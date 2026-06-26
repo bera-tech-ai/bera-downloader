@@ -1,0 +1,238 @@
+import { useState } from "react";
+import { Search, X, Loader2, Lock, ExternalLink } from "lucide-react";
+import { useAdultAuth } from "@/hooks/useAdultAuth";
+import { PinModal } from "@/components/PinModal";
+import { searchAdult, AdultResult } from "@/lib/api";
+
+function AdultCard({ item }: { item: AdultResult }) {
+  const thumb = item.thumbnail || "";
+  const meta = [item.author, item.views && `${item.views} views`].filter(Boolean).join(" · ");
+
+  function openVideo() {
+    if (item.url) window.open(item.url, "_blank", "noopener,noreferrer");
+  }
+
+  return (
+    <div className="rounded-2xl overflow-hidden bg-card border border-border flex flex-col group transition-all hover:border-white/20">
+      <div
+        className="relative w-full aspect-video bg-black cursor-pointer overflow-hidden"
+        onClick={openVideo}
+      >
+        {thumb ? (
+          <img
+            src={thumb}
+            alt={item.title}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            loading="lazy"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-muted">
+            <Lock className="w-8 h-8 text-muted-foreground" />
+          </div>
+        )}
+        {item.duration && (
+          <span className="absolute bottom-2 right-2 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded-md font-bold">
+            {item.duration}
+          </span>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
+        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="w-12 h-12 rounded-full bg-black/60 border border-white/25 flex items-center justify-center">
+            <ExternalLink className="w-5 h-5 text-white" />
+          </div>
+        </div>
+      </div>
+
+      <div className="p-3 flex flex-col gap-1.5 flex-1">
+        <p className="text-[13px] font-semibold text-foreground line-clamp-2 leading-snug">
+          {item.title || "Untitled"}
+        </p>
+        {meta && (
+          <p className="text-[11px] text-muted-foreground line-clamp-1">{meta}</p>
+        )}
+        <button
+          onClick={openVideo}
+          className="mt-auto w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold text-white transition-opacity active:opacity-80"
+          style={{ backgroundColor: "#c2185b" }}
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+          Watch
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AdultContent() {
+  const { lock, resetPin } = useAdultAuth();
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<AdultResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [searched, setSearched] = useState(false);
+
+  const QUICK = [
+    "popular", "trending", "amateur", "couple", "massage",
+  ];
+
+  async function doSearch(q?: string) {
+    const term = (q ?? query).trim();
+    if (!term) return;
+    if (q) setQuery(q);
+    setLoading(true);
+    setError(null);
+    setSearched(true);
+    try {
+      const data = await searchAdult(term);
+      setResults(data);
+    } catch (e: unknown) {
+      setError((e as Error).message || "Search failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col" style={{ backgroundColor: "#0d0d0d" }}>
+      <div className="sticky top-0 z-30 border-b border-border bg-[#0d0d0d]/95 backdrop-blur px-3 pt-4 pb-3 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-base font-black" style={{ color: "#c2185b" }}>🔞 Adults Only</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={resetPin}
+              title="Reset PIN"
+              className="text-[10px] px-2.5 py-1 rounded-full border border-border text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Reset PIN
+            </button>
+            <button
+              onClick={lock}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border border-border text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Lock className="w-3 h-3" />
+              Lock
+            </button>
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <div className="flex-1 flex items-center gap-2 bg-input border border-border rounded-xl px-3 h-11 focus-within:border-[#c2185b]/60 transition-colors">
+            <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && doSearch()}
+              placeholder="Search adult content…"
+              className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
+            />
+            {query && (
+              <button onClick={() => { setQuery(""); setResults([]); setSearched(false); }}>
+                <X className="w-4 h-4 text-muted-foreground" />
+              </button>
+            )}
+          </div>
+          <button
+            onClick={() => doSearch()}
+            disabled={loading || !query.trim()}
+            className="h-11 px-4 rounded-xl text-sm font-bold text-white transition-opacity disabled:opacity-40 shrink-0"
+            style={{ backgroundColor: "#c2185b" }}
+          >
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Go"}
+          </button>
+        </div>
+
+        <div className="overflow-x-auto -mx-3 px-3 no-scrollbar">
+          <div className="flex gap-2 w-max">
+            {QUICK.map((q) => (
+              <button
+                key={q}
+                onClick={() => doSearch(q)}
+                className="shrink-0 text-xs px-3 py-1.5 rounded-full border border-border bg-card/80 text-muted-foreground hover:border-[#c2185b] hover:text-foreground active:scale-95 transition-all capitalize"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <main className="flex-1 px-3 py-4">
+        {loading && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="rounded-2xl bg-card border border-border animate-pulse">
+                <div className="aspect-video bg-muted rounded-t-2xl" />
+                <div className="p-3 space-y-2">
+                  <div className="h-3 bg-muted rounded w-full" />
+                  <div className="h-3 bg-muted rounded w-2/3" />
+                  <div className="h-8 bg-muted rounded-xl mt-1" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {error && !loading && (
+          <div className="flex flex-col items-center py-16 gap-3 text-center">
+            <p className="text-muted-foreground text-sm">{error}</p>
+            <button
+              onClick={() => doSearch()}
+              className="text-sm px-4 py-2 rounded-xl text-white font-semibold"
+              style={{ backgroundColor: "#c2185b" }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {!loading && !error && searched && results.length === 0 && (
+          <p className="text-center py-16 text-muted-foreground text-sm">No results found.</p>
+        )}
+
+        {!loading && results.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {results.map((item, i) => (
+              <AdultCard key={item.id || i} item={item} />
+            ))}
+          </div>
+        )}
+
+        {!searched && !loading && (
+          <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
+            <div
+              className="w-20 h-20 rounded-full flex items-center justify-center text-4xl"
+              style={{ backgroundColor: "#c2185b15" }}
+            >
+              🔞
+            </div>
+            <p className="text-lg font-black text-foreground">Adult Content</p>
+            <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
+              Search for adult videos above. All content opens in a new tab.
+            </p>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+export function AdultPage() {
+  const { hasPin, unlocked, error, createPin, verifyPin, resetPin, clearError } = useAdultAuth();
+
+  if (!unlocked) {
+    return (
+      <PinModal
+        mode={hasPin ? "verify" : "create"}
+        error={error}
+        onSubmit={hasPin ? verifyPin : createPin}
+        onForgot={hasPin ? resetPin : undefined}
+      />
+    );
+  }
+
+  return <AdultContent />;
+}

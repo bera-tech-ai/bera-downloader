@@ -77,4 +77,34 @@ router.get("/ai/chat", async (req: Request, res: Response) => {
   }
 });
 
+router.get("/lyrics", async (req: Request, res: Response) => {
+  try {
+    const query = req.query["query"] as string;
+    if (!query) {
+      res.status(400).json({ error: "query is required" });
+      return;
+    }
+    const { status, data } = await proxyGifted("/search/lyrics", { query });
+    res.status(status).json(data);
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Lyrics search failed" });
+  }
+});
+
+router.get("/adult/search", async (req: Request, res: Response) => {
+  try {
+    const query = req.query["query"] as string;
+    if (!query) {
+      res.status(400).json({ error: "query is required" });
+      return;
+    }
+    const { status, data } = await proxyGifted("/search/xnxxsearch", { query });
+    res.status(status).json(data);
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Adult search failed" });
+  }
+});
+
 export default router;

@@ -21,6 +21,25 @@ export interface DownloadResult {
   error?: string;
 }
 
+export interface LyricsResult {
+  title: string;
+  artist: string;
+  album?: string;
+  thumbnail?: string;
+  lyrics: string;
+  source?: string;
+}
+
+export interface AdultResult {
+  id: string;
+  title: string;
+  thumbnail: string;
+  url: string;
+  duration?: string;
+  views?: string;
+  author?: string;
+}
+
 function safeStr(val: unknown): string {
   if (!val) return "";
   if (typeof val === "string") return val;
@@ -113,6 +132,51 @@ export async function aiChat(message: string): Promise<string> {
   if (!res.ok) throw new Error(`AI error ${res.status}`);
   const data = await res.json();
   return data.result || data.response || data.message || "No response";
+}
+
+export async function searchLyrics(query: string): Promise<LyricsResult> {
+  const res = await fetch(`${BASE}/lyrics?query=${encodeURIComponent(query)}`);
+  if (!res.ok) throw new Error(`Lyrics error ${res.status}`);
+  const data = await res.json();
+
+  const item = data.result || data;
+  const lyrics =
+    safeStr(item.lyrics) ||
+    safeStr(item.lyric) ||
+    safeStr(data.lyrics) ||
+    safeStr(data.lyric);
+
+  if (!lyrics) throw new Error("Lyrics not found for this track");
+
+  return {
+    title: safeStr(item.title) || safeStr(data.title) || query,
+    artist: safeStr(item.artist) || safeStr(item.author) || safeStr(data.artist) || "",
+    album: safeStr(item.album) || safeStr(data.album) || "",
+    thumbnail:
+      safeStr(item.thumbnail) ||
+      safeStr(item.image) ||
+      safeStr(data.thumbnail) ||
+      "",
+    lyrics,
+    source: safeStr(item.source) || safeStr(data.source) || "",
+  };
+}
+
+export async function searchAdult(query: string): Promise<AdultResult[]> {
+  const res = await fetch(`${BASE}/adult/search?query=${encodeURIComponent(query)}`);
+  if (!res.ok) throw new Error(`Adult search error ${res.status}`);
+  const data = await res.json();
+
+  const results: Record<string, unknown>[] = data.results || data.videos || data.data || [];
+  return results.map((item) => ({
+    id: safeStr(item.id) || safeStr(item.videoId),
+    title: safeStr(item.title) || safeStr(item.name),
+    thumbnail: safeStr(item.thumbnail) || safeStr(item.image) || safeStr(item.thumb),
+    url: safeStr(item.url) || safeStr(item.link),
+    duration: safeStr(item.duration) || safeStr(item.timestamp),
+    views: safeStr(item.views) || safeStr(item.viewCount),
+    author: safeStr(item.author) || safeStr(item.channel),
+  }));
 }
 
 export function formatViews(v: string): string {

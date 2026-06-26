@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Play, Music, Video, Loader2, Link2 } from "lucide-react";
+import { Play, Music, Video, Loader2, Link2, FileText } from "lucide-react";
 import { VideoResult, downloadMp3, downloadMp4, formatViews } from "@/lib/api";
 import { useDownloads } from "@/hooks/useDownloads";
 import { QualityModal } from "@/components/QualityModal";
+import { LyricsModal } from "@/components/LyricsModal";
 
 interface Props {
   video: VideoResult;
@@ -14,6 +15,7 @@ export function VideoCard({ video, onPlay, compact }: Props) {
   const { addDownload } = useDownloads();
   const [loading, setLoading] = useState<"play" | "dl" | null>(null);
   const [modal, setModal] = useState<"mp3" | "mp4" | null>(null);
+  const [showLyrics, setShowLyrics] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
   async function handlePlay() {
@@ -94,6 +96,13 @@ export function VideoCard({ video, onPlay, compact }: Props) {
           onClose={() => { setModal(null); setLoading(null); }}
         />
       )}
+      {showLyrics && (
+        <LyricsModal
+          title={video.title}
+          artist={video.author}
+          onClose={() => setShowLyrics(false)}
+        />
+      )}
 
       <div className={`rounded-2xl overflow-hidden bg-card border border-border flex flex-col group transition-all hover:border-white/20 ${compact ? "text-[11px]" : ""}`}>
         <div
@@ -139,7 +148,7 @@ export function VideoCard({ video, onPlay, compact }: Props) {
             </p>
           )}
 
-          <div className="flex gap-1.5 mt-auto pt-0.5">
+          <div className="flex gap-1.5 mt-auto pt-0.5 flex-wrap">
             <button
               onClick={handlePlay}
               disabled={!!loading}
@@ -177,6 +186,14 @@ export function VideoCard({ video, onPlay, compact }: Props) {
                 <Video className="w-3 h-3" />
               )}
               MP4
+            </button>
+
+            <button
+              onClick={() => setShowLyrics(true)}
+              title="View lyrics"
+              className="w-8 flex items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all"
+            >
+              <FileText className="w-3 h-3" />
             </button>
 
             <button
