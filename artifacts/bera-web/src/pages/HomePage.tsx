@@ -7,28 +7,30 @@ import { URLDownloader, isYouTubeUrl } from "@/components/URLDownloader";
 import { searchYouTube, VideoResult } from "@/lib/api";
 import { useSearchHistory } from "@/hooks/useSearchHistory";
 
+const YEAR = new Date().getFullYear();
+
 const SECTIONS = [
-  { id: "trending",   emoji: "🔥", label: "Trending Now",    query: "trending music hits 2024" },
-  { id: "afrobeats",  emoji: "🎵", label: "Afrobeats",       query: "Afrobeats new songs 2024" },
-  { id: "hiphop",     emoji: "🎤", label: "Hip-Hop",         query: "Hip Hop rap 2024" },
-  { id: "amapiano",   emoji: "🎹", label: "Amapiano",        query: "Amapiano mix 2024" },
-  { id: "gospel",     emoji: "🙏", label: "Gospel",          query: "Gospel worship songs 2024" },
-  { id: "rnb",        emoji: "❤️", label: "R&B / Soul",      query: "RnB soul music 2024" },
+  { id: "trending",   emoji: "🔥", label: "Trending Now",    query: `trending music hits ${YEAR}` },
+  { id: "afrobeats",  emoji: "🎵", label: "Afrobeats",       query: `Afrobeats new songs ${YEAR}` },
+  { id: "hiphop",     emoji: "🎤", label: "Hip-Hop",         query: `Hip Hop rap ${YEAR}` },
+  { id: "amapiano",   emoji: "🎹", label: "Amapiano",        query: `Amapiano mix ${YEAR}` },
+  { id: "gospel",     emoji: "🙏", label: "Gospel",          query: `Gospel worship songs ${YEAR}` },
+  { id: "rnb",        emoji: "❤️", label: "R&B / Soul",      query: `RnB soul music ${YEAR}` },
 ];
 
 const CATEGORY_CHIPS = [
-  { label: "🔥 Trending",    query: "trending music 2024" },
-  { label: "🎵 Afrobeats",   query: "Afrobeats 2024" },
-  { label: "🎤 Hip-Hop",     query: "Hip Hop 2024" },
-  { label: "🎹 Amapiano",    query: "Amapiano mix 2024" },
-  { label: "🙏 Gospel",      query: "Gospel 2024" },
-  { label: "⭐ Pop",         query: "top pop 2024" },
-  { label: "🇹🇿 Bongo",      query: "Bongo flava 2024" },
-  { label: "❤️ R&B",        query: "RnB 2024" },
-  { label: "💪 Workout",     query: "gym music mix" },
-  { label: "🎸 Rock",        query: "rock hits 2024" },
-  { label: "🌙 Chill",       query: "chill lofi 2024" },
-  { label: "🕺 Dance",       query: "dance music 2024" },
+  { label: "🔥 Trending",    query: `trending music ${YEAR}` },
+  { label: "🎵 Afrobeats",   query: `Afrobeats ${YEAR}` },
+  { label: "🎤 Hip-Hop",     query: `Hip Hop ${YEAR}` },
+  { label: "🎹 Amapiano",    query: `Amapiano mix ${YEAR}` },
+  { label: "🙏 Gospel",      query: `Gospel ${YEAR}` },
+  { label: "⭐ Pop",         query: `top pop ${YEAR}` },
+  { label: "🇹🇿 Bongo",      query: `Bongo flava ${YEAR}` },
+  { label: "❤️ R&B",        query: `RnB ${YEAR}` },
+  { label: "💪 Workout",     query: "gym workout music mix" },
+  { label: "🎸 Rock",        query: `rock hits ${YEAR}` },
+  { label: "🌙 Chill",       query: `chill lofi ${YEAR}` },
+  { label: "🕺 Dance",       query: `dance music ${YEAR}` },
 ];
 
 type SectionData = Record<string, { videos: VideoResult[]; loading: boolean }>;
