@@ -18,6 +18,10 @@ export interface Download {
   progress: number;
   createdAt: number;
   videoId: string;
+  startedAt?: number;
+  speed?: string;
+  eta?: string;
+  fileSizeMB?: number;
 }
 
 export function useDownloads() {
