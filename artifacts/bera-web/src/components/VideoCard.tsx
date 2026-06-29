@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Play, Music, Video, Loader2, Link2, FileText, Heart } from "lucide-react";
+import { Play, Music, Video, Loader2, Share2, FileText, Heart } from "lucide-react";
 import { VideoResult, downloadMp3, downloadMp4, formatViews } from "@/lib/api";
 import { useDownloads } from "@/hooks/useDownloads";
 import { useFavorites } from "@/hooks/useFavorites";
@@ -129,13 +129,6 @@ export function VideoCard({ video, onPlay, compact }: Props) {
       setLoading(null);
       setModal(null);
     }
-  }
-
-  function copyLink() {
-    navigator.clipboard.writeText(video.url).then(() => {
-      setMsg({ text: "✓ Link copied!", ok: true });
-      setTimeout(() => setMsg(null), 2000);
-    });
   }
 
   const thumb = video.thumbnail || `https://img.youtube.com/vi/${video.id}/hqdefault.jpg`;
@@ -286,12 +279,21 @@ export function VideoCard({ video, onPlay, compact }: Props) {
             </button>
 
             <button
-              onClick={copyLink}
+              onClick={() => {
+                if (navigator.share) {
+                  navigator.share({ title: video.title, url: video.url }).catch(() => {});
+                } else {
+                  navigator.clipboard.writeText(video.url).then(() => {
+                    setMsg({ text: "✓ Link copied!", ok: true });
+                    setTimeout(() => setMsg(null), 2000);
+                  });
+                }
+              }}
               disabled={!!loading}
-              title="Copy YouTube link"
+              title="Share"
               className="w-8 flex items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all"
             >
-              <Link2 className="w-3 h-3" />
+              <Share2 className="w-3 h-3" />
             </button>
           </div>
         </div>
