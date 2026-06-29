@@ -1,12 +1,13 @@
-import { useState } from "react";
-import { Trash2, Play, Download, Music, Video, X, Heart } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Trash2, Play, Download, Music, Video, X, Heart, RefreshCw, HardDrive, Zap } from "lucide-react";
 import { useDownloads, Download as DL } from "@/hooks/useDownloads";
 import { useFavorites } from "@/hooks/useFavorites";
 import { useAdultDownloads, AdultDownload } from "@/hooks/useAdultDownloads";
 import { useAudioPlayer } from "@/context/AudioPlayerContext";
+import { useNotifications } from "@/hooks/useNotifications";
 import { VideoPlayerModal } from "@/components/VideoPlayerModal";
 import { AdultVideoPlayer, AdultPlayerState } from "@/components/AdultVideoPlayer";
-import { VideoResult } from "@/lib/api";
+import { VideoResult, downloadMp3, downloadMp4 } from "@/lib/api";
 
 function dlToVideo(dl: DL): VideoResult {
   return {
@@ -21,19 +22,45 @@ function dlToVideo(dl: DL): VideoResult {
   };
 }
 
-function DownloadProgressBar({ progress, status }: { progress: number; status: DL["status"] }) {
+function elapsedLabel(startedAt?: number): string {
+  if (!startedAt) return "";
+  const secs = Math.floor((Date.now() - startedAt) / 1000);
+  if (secs < 60) return `${secs}s`;
+  return `${Math.floor(secs / 60)}m ${secs % 60}s`;
+}
+
+function totalSavedMB(downloads: DL[]): number {
+  return downloads
+    .filter((d) => d.status === "completed" && d.fileSizeMB)
+    .reduce((acc, d) => acc + (d.fileSizeMB ?? 0), 0);
+}
+
+function DownloadProgressBar({ progress, status, speed, eta }: {
+  progress: number;
+  status: DL["status"];
+  speed?: string;
+  eta?: string;
+}) {
   if (status === "completed") return null;
   const color = status === "failed" ? "#ef4444" : "#FF4500";
   return (
-    <div className="w-full h-1 bg-muted rounded-full overflow-hidden mt-1">
-      {status === "downloading" ? (
-        <div
-          className="h-full rounded-full animate-pulse"
-          style={{ width: `${Math.max(progress, 20)}%`, backgroundColor: color }}
-        />
-      ) : status === "failed" ? (
-        <div className="h-full rounded-full w-full" style={{ backgroundColor: color, opacity: 0.4 }} />
-      ) : null}
+    <div className="mt-1 space-y-0.5">
+      <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+        {status === "downloading" ? (
+          <div
+            className="h-full rounded-full transition-all duration-300"
+            style={{ width: `${Math.max(progress, 8)}%`, backgroundColor: color }}
+          />
+        ) : status === "failed" ? (
+          <div className="h-full rounded-full w-full" style={{ backgroundColor: color, opacity: 0.4 }} />
+        ) : null}
+      </div>
+      {status === "downloading" && (speed || eta) && (
+        <div className="flex items-center justify-between">
+          <span className="text-[9px] font-bold" style={{ color: "#FF4500" }}>{speed}</span>
+          <span className="text-[9px] text-muted-foreground">{eta}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -141,24 +168,110 @@ function AdultDownloadCard({
 }
 
 export function DownloadsPage() {
-  const { downloads, removeDownload, clearCompleted } = useDownloads();
+  const { downloads, removeDownload, clearCompleted, updateDownload, addDownload } = useDownloads();
   const { adultDownloads, removeAdultDownload, clearAdultDownloads } = useAdultDownloads();
   const { favorites, toggleFavorite, clearFavorites } = useFavorites();
   const { playTrack } = useAudioPlayer();
-
-  const inProgress  = downloads.filter(d => d.status === "downloading" || d.status === "pending");
-  const completed   = downloads.filter(d => d.status === "completed");
-  const failed      = downloads.filter(d => d.status === "failed");
-  const allDone     = [...completed, ...failed];
+  const { permission, requestPermission, notify } = useNotifications();
 
   const [videoPlayer, setVideoPlayer] = useState<{ dl: DL } | null>(null);
   const [adultPlayer, setAdultPlayer] = useState<AdultPlayerState | null>(null);
+  const [retrying, setRetrying]       = useState<Record<string, boolean>>({});
+  const [now, setNow]                 = useState(Date.now());
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const inProgress = downloads.filter(d => d.status === "downloading" || d.status === "pending");
+  const completed  = downloads.filter(d => d.status === "completed");
+  const failed     = downloads.filter(d => d.status === "failed");
+  const allDone    = [...completed, ...failed];
+
+  useEffect(() => {
+    if (inProgress.length > 0) {
+      timerRef.current = setInterval(() => setNow(Date.now()), 1000);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [inProgress.length]);
+
+  async function handleRetry(dl: DL) {
+    if (retrying[dl.id]) return;
+    setRetrying(r => ({ ...r, [dl.id]: true }));
+
+    const videoUrl = `https://www.youtube.com/watch?v=${dl.videoId}`;
+    const quality  = dl.type === "mp3" ? dl.quality : dl.quality.replace("p", "");
+
+    removeDownload(dl.id);
+
+    const newId = addDownload({
+      title: dl.title,
+      thumbnail: dl.thumbnail,
+      author: dl.author,
+      duration: dl.duration,
+      type: dl.type,
+      quality: dl.quality,
+      downloadUrl: "",
+      status: "downloading",
+      progress: 0,
+      videoId: dl.videoId,
+      startedAt: Date.now(),
+      fileSizeMB: dl.fileSizeMB,
+    });
+
+    try {
+      const res = dl.type === "mp3"
+        ? await downloadMp3(videoUrl, quality)
+        : await downloadMp4(videoUrl, quality);
+
+      if (!res.success || !res.downloadUrl) {
+        updateDownload(newId, { status: "failed", progress: 0 });
+        return;
+      }
+
+      updateDownload(newId, {
+        title: res.title || dl.title,
+        thumbnail: res.thumbnail || dl.thumbnail,
+        author: res.author || dl.author,
+        duration: res.duration || dl.duration,
+        downloadUrl: res.downloadUrl,
+        status: "completed",
+        progress: 100,
+        speed: undefined,
+        eta: undefined,
+      });
+
+      const a = document.createElement("a");
+      a.href = res.downloadUrl;
+      a.download = `${dl.title.slice(0, 50)}.${dl.type}`;
+      a.target = "_blank";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
+      notify(`✅ Retry success!`, res.title || dl.title, {
+        image: res.thumbnail || dl.thumbnail,
+        tag: newId,
+      });
+
+      if (dl.type === "mp3") {
+        playTrack({
+          url: res.downloadUrl,
+          title: res.title || dl.title,
+          thumbnail: res.thumbnail || dl.thumbnail,
+          author: res.author || dl.author,
+        });
+      }
+    } catch {
+      updateDownload(newId, { status: "failed", progress: 0 });
+    } finally {
+      setRetrying(r => { const n = { ...r }; delete n[newId]; return n; });
+    }
+  }
 
   function handlePlay(dl: DL) {
     if (dl.type === "mp4" && dl.videoId) {
       setVideoPlayer({ dl });
     } else if (dl.type === "mp3" && dl.downloadUrl) {
-      // Build queue from all completed MP3s
       const mp3Queue = completed
         .filter(d => d.type === "mp3" && d.downloadUrl)
         .map(d => ({ url: d.downloadUrl, title: d.title, thumbnail: d.thumbnail, author: d.author }));
@@ -180,6 +293,7 @@ export function DownloadsPage() {
   }
 
   const totalCount = downloads.length + adultDownloads.length + favorites.length;
+  const savedMB    = totalSavedMB(downloads);
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#0d0d0d" }}>
@@ -195,6 +309,7 @@ export function DownloadsPage() {
       )}
 
       <div className="px-3 pt-6 pb-24 max-w-2xl mx-auto space-y-6">
+        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-black text-foreground">Library</h1>
@@ -202,17 +317,50 @@ export function DownloadsPage() {
               {totalCount} item{totalCount !== 1 ? "s" : ""}
             </p>
           </div>
-          {(completed.length > 0 || failed.length > 0) && (
-            <button
-              onClick={clearCompleted}
-              className="text-xs px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              Clear done
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {(completed.length > 0 || failed.length > 0) && (
+              <button
+                onClick={clearCompleted}
+                className="text-xs px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Clear done
+              </button>
+            )}
+          </div>
         </div>
 
+        {/* Stats bar */}
+        {(completed.length > 0 || savedMB > 0) && (
+          <div className="grid grid-cols-3 gap-2">
+            <div className="bg-card border border-border rounded-xl p-2.5 flex flex-col items-center gap-0.5">
+              <Download className="w-4 h-4 mb-0.5" style={{ color: "#FF4500" }} />
+              <span className="text-sm font-black text-foreground">{completed.length}</span>
+              <span className="text-[9px] text-muted-foreground">Completed</span>
+            </div>
+            <div className="bg-card border border-border rounded-xl p-2.5 flex flex-col items-center gap-0.5">
+              <HardDrive className="w-4 h-4 mb-0.5 text-blue-400" />
+              <span className="text-sm font-black text-foreground">
+                {savedMB >= 1000 ? `${(savedMB / 1024).toFixed(1)} GB` : `${Math.round(savedMB)} MB`}
+              </span>
+              <span className="text-[9px] text-muted-foreground">Saved</span>
+            </div>
+            <div
+              className="bg-card border border-border rounded-xl p-2.5 flex flex-col items-center gap-0.5 cursor-pointer hover:border-yellow-500/40 transition-colors"
+              onClick={async () => {
+                if (permission !== "granted") await requestPermission();
+              }}
+            >
+              <Zap className={`w-4 h-4 mb-0.5 ${permission === "granted" ? "text-yellow-400" : "text-muted-foreground"}`} />
+              <span className="text-sm font-black text-foreground">
+                {permission === "granted" ? "ON" : "OFF"}
+              </span>
+              <span className="text-[9px] text-muted-foreground">Alerts</span>
+            </div>
+          </div>
+        )}
+
+        {/* Empty state */}
         {totalCount === 0 && (
           <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
             <div className="w-20 h-20 rounded-full flex items-center justify-center" style={{ backgroundColor: "#FF450015" }}>
@@ -235,28 +383,45 @@ export function DownloadsPage() {
               Downloading ({inProgress.length})
             </h2>
             <div className="space-y-2.5">
-              {inProgress.map(dl => (
-                <div key={dl.id} className="flex gap-3 items-center bg-card border border-border rounded-2xl overflow-hidden">
-                  <div className="relative shrink-0 w-[90px] h-[68px]">
-                    <img
-                      src={dl.thumbnail || `https://img.youtube.com/vi/${dl.videoId}/hqdefault.jpg`}
-                      alt={dl.title}
-                      className="w-full h-full object-cover opacity-60"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                      <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              {inProgress.map(dl => {
+                const elapsed = dl.startedAt
+                  ? elapsedLabel(dl.startedAt)
+                  : "";
+                return (
+                  <div key={dl.id} className="flex gap-3 items-center bg-card border border-[#FF4500]/20 rounded-2xl overflow-hidden">
+                    <div className="relative shrink-0 w-[90px] h-[68px]">
+                      <img
+                        src={dl.thumbnail || `https://img.youtube.com/vi/${dl.videoId}/hqdefault.jpg`}
+                        alt={dl.title}
+                        className="w-full h-full object-cover opacity-50"
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                        <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      </div>
                     </div>
+                    <div className="flex-1 min-w-0 py-2 pr-1">
+                      <p className="text-[13px] font-semibold text-foreground line-clamp-1">{dl.title}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">{dl.author}</p>
+                      <DownloadProgressBar progress={dl.progress} status={dl.status} speed={dl.speed} eta={dl.eta} />
+                      <div className="flex items-center justify-between mt-0.5">
+                        <p className="text-[10px] font-bold" style={{ color: "#FF4500" }}>
+                          {dl.quality} {dl.type.toUpperCase()}
+                        </p>
+                        {elapsed && (
+                          <p className="text-[9px] text-muted-foreground">{now > 0 && elapsedLabel(dl.startedAt)}</p>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => removeDownload(dl.id)}
+                      title="Cancel"
+                      className="mr-2 w-7 h-7 rounded-full flex items-center justify-center bg-muted hover:bg-destructive/20 active:scale-90 transition-all shrink-0"
+                    >
+                      <X className="w-3 h-3 text-muted-foreground" />
+                    </button>
                   </div>
-                  <div className="flex-1 min-w-0 py-2 pr-3">
-                    <p className="text-[13px] font-semibold text-foreground line-clamp-1">{dl.title}</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">{dl.author}</p>
-                    <DownloadProgressBar progress={dl.progress} status={dl.status} />
-                    <p className="text-[10px] font-bold mt-1" style={{ color: "#FF4500" }}>
-                      Preparing {dl.quality} {dl.type.toUpperCase()}…
-                    </p>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
         )}
@@ -309,7 +474,7 @@ export function DownloadsPage() {
           </section>
         )}
 
-        {/* Completed / failed YouTube downloads */}
+        {/* Completed / failed downloads */}
         {allDone.length > 0 && (
           <section>
             <h2 className="text-sm font-bold text-muted-foreground mb-3 flex items-center gap-2">
@@ -317,24 +482,31 @@ export function DownloadsPage() {
             </h2>
             <div className="space-y-2.5">
               {allDone.map(dl => (
-                <div key={dl.id} className="flex gap-3 items-center bg-card border border-border rounded-2xl overflow-hidden">
+                <div key={dl.id} className={`flex gap-3 items-center bg-card border rounded-2xl overflow-hidden ${dl.status === "failed" ? "border-red-500/20" : "border-border"}`}>
                   <div className="relative shrink-0 w-[90px] h-[68px]">
                     <img
                       src={dl.thumbnail || `https://img.youtube.com/vi/${dl.videoId}/hqdefault.jpg`}
                       alt={dl.title}
-                      className="w-full h-full object-cover"
+                      className={`w-full h-full object-cover ${dl.status === "failed" ? "opacity-40 grayscale" : ""}`}
                     />
-                    <div
-                      className="absolute inset-0 flex items-center justify-center bg-black/40 cursor-pointer hover:bg-black/60 transition-colors active:bg-black/70"
-                      onClick={() => handlePlay(dl)}
-                    >
-                      <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
-                        {dl.type === "mp3"
-                          ? <Music className="w-4 h-4 text-white" />
-                          : <Play className="w-4 h-4 text-white fill-white ml-0.5" />
-                        }
+                    {dl.status === "completed" && (
+                      <div
+                        className="absolute inset-0 flex items-center justify-center bg-black/40 cursor-pointer hover:bg-black/60 transition-colors active:bg-black/70"
+                        onClick={() => handlePlay(dl)}
+                      >
+                        <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+                          {dl.type === "mp3"
+                            ? <Music className="w-4 h-4 text-white" />
+                            : <Play className="w-4 h-4 text-white fill-white ml-0.5" />
+                          }
+                        </div>
                       </div>
-                    </div>
+                    )}
+                    {dl.status === "failed" && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+                        <span className="text-red-400 text-lg font-black">✗</span>
+                      </div>
+                    )}
                     <span
                       className="absolute top-1 left-1 text-[9px] font-black px-1 py-0.5 rounded"
                       style={{ backgroundColor: dl.type === "mp3" ? "#FF4500" : "#1565c0", color: "white" }}
@@ -346,13 +518,18 @@ export function DownloadsPage() {
                   <div className="flex-1 min-w-0 py-2">
                     <p className="text-[13px] font-semibold text-foreground line-clamp-2 leading-tight">{dl.title}</p>
                     <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">{dl.author}</p>
-                    <div className="flex items-center gap-1.5 mt-1">
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
                       <span
                         className="text-[10px] font-bold"
                         style={{ color: dl.status === "completed" ? "#22c55e" : "#ef4444" }}
                       >
                         {dl.status === "completed" ? `✓ ${dl.quality}` : "✗ Failed"}
                       </span>
+                      {dl.fileSizeMB && dl.status === "completed" && (
+                        <span className="text-[9px] text-muted-foreground">
+                          ~{dl.fileSizeMB >= 1000 ? `${(dl.fileSizeMB / 1024).toFixed(1)}GB` : `${Math.round(dl.fileSizeMB)}MB`}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -364,6 +541,16 @@ export function DownloadsPage() {
                           ? <Music className="w-3.5 h-3.5" style={{ color: "#FF4500" }} />
                           : <Play className="w-3.5 h-3.5 ml-0.5" style={{ color: "#FF4500" }} />
                         }
+                      </button>
+                    )}
+                    {dl.status === "failed" && (
+                      <button
+                        onClick={() => handleRetry(dl)}
+                        disabled={retrying[dl.id]}
+                        title="Retry download"
+                        className="w-8 h-8 rounded-full flex items-center justify-center bg-orange-500/10 hover:bg-orange-500/20 active:scale-90 transition-all disabled:opacity-40"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 text-orange-400 ${retrying[dl.id] ? "animate-spin" : ""}`} />
                       </button>
                     )}
                     {dl.status === "completed" && dl.downloadUrl && (
