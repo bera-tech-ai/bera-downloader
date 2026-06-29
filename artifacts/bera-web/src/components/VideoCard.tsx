@@ -5,6 +5,7 @@ import { useDownloads } from "@/hooks/useDownloads";
 import { useFavorites } from "@/hooks/useFavorites";
 import { useQualityPreference } from "@/hooks/useQualityPreference";
 import { useAudioPlayer } from "@/context/AudioPlayerContext";
+import { useNotifications } from "@/hooks/useNotifications";
 import { QualityModal } from "@/components/QualityModal";
 import { LyricsModal } from "@/components/LyricsModal";
 
@@ -14,17 +15,38 @@ interface Props {
   compact?: boolean;
 }
 
+function estimateSizeMB(type: "mp3" | "mp4", quality: string): number {
+  if (type === "mp3") {
+    if (quality.includes("320")) return 10;
+    if (quality.includes("192")) return 6;
+    return 4;
+  }
+  if (quality.includes("1080")) return 150;
+  if (quality.includes("720")) return 80;
+  if (quality.includes("480")) return 45;
+  return 30;
+}
+
+function formatEta(seconds: number): string {
+  if (seconds <= 0) return "";
+  if (seconds >= 60) return `~${Math.ceil(seconds / 60)}m left`;
+  return `~${Math.ceil(seconds)}s left`;
+}
+
 export function VideoCard({ video, onPlay, compact }: Props) {
   const { addDownload, updateDownload } = useDownloads();
   const { isFavorite, toggleFavorite } = useFavorites();
   const { pref, setQuality } = useQualityPreference();
   const { playTrack } = useAudioPlayer();
+  const { requestPermission, notify } = useNotifications();
 
-  const [loading, setLoading]     = useState<"play" | "dl" | null>(null);
-  const [modal, setModal]         = useState<"mp3" | "mp4" | null>(null);
+  const [loading, setLoading]       = useState<"play" | "dl" | null>(null);
+  const [modal, setModal]           = useState<"mp3" | "mp4" | null>(null);
   const [showLyrics, setShowLyrics] = useState(false);
-  const [dlProgress, setDlProgress] = useState(0); // 0-100
-  const [msg, setMsg]             = useState<{ text: string; ok: boolean } | null>(null);
+  const [dlProgress, setDlProgress] = useState(0);
+  const [dlSpeed, setDlSpeed]       = useState("");
+  const [dlEta, setDlEta]           = useState("");
+  const [msg, setMsg]               = useState<{ text: string; ok: boolean } | null>(null);
   const fav = isFavorite(video.id);
 
   async function handlePlay() {
@@ -43,10 +65,16 @@ export function VideoCard({ video, onPlay, compact }: Props) {
   async function handleDownload(type: "mp3" | "mp4", quality: string) {
     setLoading("dl");
     setDlProgress(0);
+    setDlSpeed("");
+    setDlEta("");
     setMsg(null);
     setQuality(type, quality);
 
-    // Add to downloads queue immediately as "downloading"
+    await requestPermission();
+
+    const estimatedMB = estimateSizeMB(type, quality);
+    const startTime = Date.now();
+
     const dlId = addDownload({
       title: video.title,
       thumbnail: video.thumbnail,
@@ -58,14 +86,33 @@ export function VideoCard({ video, onPlay, compact }: Props) {
       status: "downloading",
       progress: 0,
       videoId: video.id,
+      startedAt: startTime,
+      fileSizeMB: estimatedMB,
     });
 
-    // Animate progress while API call is in flight
     let tick = 0;
     const interval = setInterval(() => {
-      tick += Math.random() * 12 + 4;
-      setDlProgress(Math.min(tick, 88));
-    }, 200);
+      tick += Math.random() * 10 + 3;
+      const clamped = Math.min(tick, 88);
+      setDlProgress(clamped);
+
+      const elapsedSec = (Date.now() - startTime) / 1000;
+      const downloaded = estimatedMB * (clamped / 100);
+      const speedMBs = elapsedSec > 0.5 ? downloaded / elapsedSec : 0;
+      const remaining = estimatedMB * ((100 - clamped) / 100);
+      const etaSec = speedMBs > 0.05 ? remaining / speedMBs : 0;
+
+      if (speedMBs > 0.05) {
+        const speed = speedMBs < 1
+          ? `${Math.round(speedMBs * 1024)} KB/s`
+          : `${speedMBs.toFixed(1)} MB/s`;
+        setDlSpeed(speed);
+        setDlEta(formatEta(etaSec));
+        updateDownload(dlId, { progress: Math.round(clamped), speed, eta: formatEta(etaSec) });
+      } else {
+        updateDownload(dlId, { progress: Math.round(clamped) });
+      }
+    }, 250);
 
     try {
       const res =
@@ -77,13 +124,14 @@ export function VideoCard({ video, onPlay, compact }: Props) {
 
       if (!res.success || !res.downloadUrl) {
         setDlProgress(0);
-        updateDownload(dlId, { status: "failed", progress: 0 });
+        setDlSpeed("");
+        setDlEta("");
+        updateDownload(dlId, { status: "failed", progress: 0, speed: undefined, eta: undefined });
         setMsg({ text: res.error || "Download failed", ok: false });
         setTimeout(() => setMsg(null), 4000);
         return;
       }
 
-      // Update existing queue item to completed
       updateDownload(dlId, {
         title: res.title || video.title,
         thumbnail: res.thumbnail || video.thumbnail,
@@ -92,12 +140,15 @@ export function VideoCard({ video, onPlay, compact }: Props) {
         downloadUrl: res.downloadUrl,
         status: "completed",
         progress: 100,
+        speed: undefined,
+        eta: undefined,
       });
 
       setDlProgress(100);
+      setDlSpeed("");
+      setDlEta("");
       setTimeout(() => setDlProgress(0), 600);
 
-      // Trigger browser download
       const a = document.createElement("a");
       a.href = res.downloadUrl;
       a.download = `${video.title.slice(0, 50)}.${type}`;
@@ -106,7 +157,6 @@ export function VideoCard({ video, onPlay, compact }: Props) {
       a.click();
       document.body.removeChild(a);
 
-      // If MP3, also offer in mini player
       if (type === "mp3") {
         playTrack({
           url: res.downloadUrl,
@@ -114,15 +164,26 @@ export function VideoCard({ video, onPlay, compact }: Props) {
           thumbnail: res.thumbnail || video.thumbnail,
           author: res.author || video.author,
         });
+        notify("🎵 MP3 ready!", res.title || video.title, {
+          image: res.thumbnail || video.thumbnail,
+          tag: dlId,
+        });
+        setMsg({ text: "✓ Saved · playing in mini bar", ok: true });
+      } else {
+        notify("🎬 MP4 ready!", res.title || video.title, {
+          image: res.thumbnail || video.thumbnail,
+          tag: dlId,
+        });
+        setMsg({ text: "✓ Saved to Downloads", ok: true });
       }
 
-      setMsg({ text: `✓ Saved · playing in mini bar`, ok: true });
-      if (type === "mp4") setMsg({ text: "✓ Saved to Downloads", ok: true });
       setTimeout(() => setMsg(null), 3000);
     } catch (e: unknown) {
       clearInterval(interval);
       setDlProgress(0);
-      updateDownload(dlId, { status: "failed", progress: 0 });
+      setDlSpeed("");
+      setDlEta("");
+      updateDownload(dlId, { status: "failed", progress: 0, speed: undefined, eta: undefined });
       setMsg({ text: (e as Error).message || "Failed", ok: false });
       setTimeout(() => setMsg(null), 4000);
     } finally {
@@ -156,9 +217,7 @@ export function VideoCard({ video, onPlay, compact }: Props) {
         />
       )}
 
-      <div
-        className={`rounded-2xl overflow-hidden bg-card border border-border flex flex-col group transition-all hover:border-white/20 ${compact ? "text-[11px]" : ""}`}
-      >
+      <div className={`rounded-2xl overflow-hidden bg-card border border-border flex flex-col group transition-all hover:border-white/20 ${compact ? "text-[11px]" : ""}`}>
         <div
           className="relative w-full aspect-video bg-black cursor-pointer overflow-hidden"
           onClick={handlePlay}
@@ -174,7 +233,6 @@ export function VideoCard({ video, onPlay, compact }: Props) {
               {video.duration}
             </span>
           )}
-          {/* Favorite badge */}
           {fav && (
             <span className="absolute top-2 left-2 z-10">
               <Heart className="w-3.5 h-3.5 fill-red-500 text-red-500 drop-shadow" />
@@ -202,13 +260,22 @@ export function VideoCard({ video, onPlay, compact }: Props) {
             <p className="text-[11px] text-muted-foreground line-clamp-1">{meta}</p>
           )}
 
-          {/* Download progress bar */}
           {dlProgress > 0 && dlProgress < 100 && (
-            <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all duration-200"
-                style={{ width: `${dlProgress}%`, backgroundColor: "#FF4500" }}
-              />
+            <div className="space-y-1">
+              <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-300"
+                  style={{ width: `${dlProgress}%`, backgroundColor: "#FF4500" }}
+                />
+              </div>
+              {(dlSpeed || dlEta) && (
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold" style={{ color: "#FF4500" }}>
+                    {dlSpeed}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">{dlEta}</span>
+                </div>
+              )}
             </div>
           )}
 
