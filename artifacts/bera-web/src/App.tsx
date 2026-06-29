@@ -8,6 +8,8 @@ import { useDownloads } from "@/hooks/useDownloads";
 import { AudioPlayerProvider, useAudioPlayer } from "@/context/AudioPlayerContext";
 import { FavoritesProvider, useFavorites } from "@/context/FavoritesContext";
 import { QualityPreferenceProvider } from "@/context/QualityPreferenceContext";
+import { InstallPrompt } from "@/components/InstallPrompt";
+import { OfflineIndicator } from "@/components/OfflineIndicator";
 
 const TABS = [
   { id: "home",      label: "Search",    icon: Search },
@@ -72,15 +74,19 @@ function AppInner() {
   const bottomPad = track ? "pb-36" : "pb-16";
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: "#0d0d0d" }}>
-      <div className={bottomPad}>
-        {tab === "home"      && <HomePage />}
-        {tab === "downloads" && <DownloadsPage />}
-        {tab === "ai"        && <AIChatPage />}
-        {tab === "adult"     && <AdultPage />}
+    <>
+      <OfflineIndicator />
+      <div className="min-h-screen" style={{ backgroundColor: "#0d0d0d" }}>
+        <div className={bottomPad}>
+          {tab === "home"      && <HomePage />}
+          {tab === "downloads" && <DownloadsPage />}
+          {tab === "ai"        && <AIChatPage />}
+          {tab === "adult"     && <AdultPage />}
+        </div>
+        <NavBar tab={tab} setTab={setTab} />
       </div>
-      <NavBar tab={tab} setTab={setTab} />
-    </div>
+      <InstallPrompt />
+    </>
   );
 }
 
